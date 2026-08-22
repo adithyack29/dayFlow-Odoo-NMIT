@@ -3,65 +3,37 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { UserCheck, Building2, Lock, Mail, User, Check, X, ShieldAlert, AlertCircle, ArrowRight } from 'lucide-react';
+import { Building2, Lock, Mail, User, Phone, Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 
-export default function SignUpPage() {
+export default function CompanySignUpPage() {
   const router = useRouter();
 
-  const [formData, setFormData] = useState({
-    employeeId: '',
-    email: '',
-    password: '',
-    firstName: '',
-    lastName: '',
-    role: 'EMPLOYEE',
-  });
+  const [companyName, setCompanyName] = useState('Odoo India');
+  const [companyCode, setCompanyCode] = useState('OI');
+  const [adminName, setAdminName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<{
-    message: string;
-    verificationUrl?: string;
-  } | null>(null);
-
-  // Live password validation state
-  const hasMinLen = formData.password.length >= 8;
-  const hasNumber = /[0-9]/.test(formData.password);
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(formData.password);
-  const isPasswordValid = hasMinLen && hasNumber && hasSpecialChar;
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    // Clear specific field error on user input
-    if (fieldErrors[name]) {
-      setFieldErrors((prev) => {
-        const updated = { ...prev };
-        delete updated[name];
-        return updated;
-      });
-    }
-  };
-
-  const handleRoleSelect = (role: 'EMPLOYEE' | 'ADMIN') => {
-    setFormData((prev) => ({ ...prev, role }));
-  };
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFieldErrors({});
     setGeneralError(null);
 
-    // Client-side pre-validation
     const errors: Record<string, string> = {};
-    if (!formData.employeeId.trim()) errors.employeeId = 'Employee ID is required';
-    if (!formData.email.trim()) errors.email = 'Email address is required';
-    if (!formData.firstName.trim()) errors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) errors.lastName = 'Last name is required';
-    if (!isPasswordValid) {
-      errors.password = 'Password does not meet required security criteria';
-    }
+    if (!companyName.trim()) errors.companyName = 'Company name is required';
+    if (!companyCode.trim()) errors.companyCode = 'Company code is required (e.g. OI)';
+    if (!adminName.trim()) errors.adminName = 'Admin full name is required';
+    if (!email.trim()) errors.email = 'Email address is required';
+    if (!password) errors.password = 'Password is required';
+    if (password && password.length < 8) errors.password = 'Password must be at least 8 characters';
+    if (password !== confirmPassword) errors.confirmPassword = 'Passwords do not match';
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -71,316 +43,179 @@ export default function SignUpPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch('/api/auth/signup', {
-        method: 'POST',
+      // Create initial company settings & first admin
+      const resCompany = await fetch('/api/company/settings', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({ companyName, companyCode }),
       });
 
-      const data = await response.json();
+      const parts = adminName.trim().split(' ');
+      const firstName = parts[0] || 'Admin';
+      const lastName = parts.slice(1).join(' ') || 'User';
 
-      if (!response.ok) {
-        if (data.errors) {
-          if (typeof data.errors === 'string') {
-            setGeneralError(data.errors);
-          } else {
-            setFieldErrors(data.errors);
-            if (data.errors.general) setGeneralError(data.errors.general);
-          }
-        } else {
-          setGeneralError('Registration failed. Please check your inputs.');
-        }
+      const resUser = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeId: `${companyCode.toUpperCase()}ADMIN0001`,
+          email,
+          password,
+          firstName,
+          lastName,
+          role: 'ADMIN',
+        }),
+      });
+
+      const data = await resUser.json();
+      if (!resUser.ok) {
+        if (data.errors) setFieldErrors(data.errors);
+        else setGeneralError(data.error || 'Failed to create company account');
       } else {
-        setSuccessInfo({
-          message: data.message || 'Account created successfully!',
-          verificationUrl: data.user?.verificationUrl,
-        });
+        setSuccessMsg('Initial Organization & Admin Account created! Redirecting to Sign In...');
+        setTimeout(() => {
+          router.push('/signin');
+        }, 1500);
       }
     } catch {
-      setGeneralError('Network error. Unable to connect to server.');
+      setGeneralError('Network error during company registration');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-slate-950 text-slate-100">
-      <div className="w-full max-w-lg bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-8 backdrop-blur-sm">
-        {/* Header */}
-        <div className="flex flex-col items-center text-center mb-8">
-          <div className="w-14 h-14 bg-indigo-600/20 border border-indigo-500/30 rounded-2xl flex items-center justify-center text-indigo-400 mb-4 shadow-lg shadow-indigo-500/10">
-            <Building2 className="w-7 h-7" />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl p-8 space-y-6">
+        {/* Wireframe Logo & Title Header */}
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white font-black shadow-lg shadow-indigo-600/30">
+            <Building2 className="w-6 h-6" />
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">Create Dayflow Account</h1>
-          <p className="text-sm text-slate-400 mt-1">Register new employee or admin account for HRMS access</p>
+          <h1 className="text-2xl font-black text-white tracking-tight">Organization Sign Up</h1>
+          <p className="text-xs text-slate-400">
+            Create initial company profile &amp; first Admin account.
+            <span className="block font-semibold text-amber-400 mt-1">
+              Note: Employee onboarding is handled by Admin inside the app.
+            </span>
+          </p>
         </div>
 
-        {/* General Error Banner */}
         {generalError && (
-          <div className="mb-6 p-4 rounded-xl bg-red-950/60 border border-red-800/80 text-red-200 flex items-start gap-3 text-sm">
-            <ShieldAlert className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold block">Registration Error</span>
-              {generalError}
-            </div>
+          <div className="p-3 bg-red-950/80 border border-red-800 text-red-200 text-xs rounded-xl flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+            {generalError}
           </div>
         )}
 
-        {/* Success Modal / Banner */}
-        {successInfo ? (
-          <div className="p-6 bg-emerald-950/70 border border-emerald-800/80 rounded-2xl text-emerald-100 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-                <Check className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-lg text-emerald-200">Account Created!</h3>
-                <p className="text-xs text-emerald-300/80">{successInfo.message}</p>
-              </div>
-            </div>
-
-            {/* Simulated Email Verification Box */}
-            <div className="p-4 bg-slate-900 border border-emerald-900/50 rounded-xl space-y-2 text-xs">
-              <div className="flex items-center justify-between text-slate-300 font-medium">
-                <span className="flex items-center gap-1.5 text-amber-400 font-mono text-[11px]">
-                  <span>⚡</span> [SIMULATED EMAIL DELIVERY]
-                </span>
-              </div>
-              <p className="text-slate-400">
-                Since third-party email providers are disabled, click below to verify email:
-              </p>
-              {successInfo.verificationUrl && (
-                <a
-                  href={successInfo.verificationUrl}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold transition-colors w-full justify-center"
-                >
-                  Verify Email Now <ArrowRight className="w-3.5 h-3.5" />
-                </a>
-              )}
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <Link
-                href="/signin"
-                className="text-xs font-semibold text-slate-300 hover:text-white underline underline-offset-4"
-              >
-                Proceed to Sign In &rarr;
-              </Link>
-            </div>
+        {successMsg && (
+          <div className="p-3 bg-emerald-950/80 border border-emerald-800 text-emerald-200 text-xs rounded-xl flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            {successMsg}
           </div>
-        ) : (
-          /* Sign Up Form */
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            {/* Role Selector Tabs */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2 uppercase tracking-wider">
-                Account Type / Role
-              </label>
-              <div className="grid grid-cols-2 gap-3 p-1.5 bg-slate-950 rounded-xl border border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => handleRoleSelect('EMPLOYEE')}
-                  className={`py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                    formData.role === 'EMPLOYEE'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <User className="w-4 h-4" /> Employee
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleRoleSelect('ADMIN')}
-                  className={`py-2.5 px-4 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
-                    formData.role === 'ADMIN'
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4" /> Admin / HR
-                </button>
-              </div>
-            </div>
+        )}
 
-            {/* Name Fields */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="firstName" className="block text-xs font-medium text-slate-300 mb-1">
-                  First Name
-                </label>
-                <input
-                  id="firstName"
-                  name="firstName"
-                  type="text"
-                  value={formData.firstName}
-                  onChange={handleChange}
-                  placeholder="John"
-                  className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border ${
-                    fieldErrors.firstName ? 'border-red-500 focus:ring-red-500' : 'border-slate-800 focus:ring-indigo-500'
-                  } text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2`}
-                />
-                {fieldErrors.firstName && (
-                  <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> {fieldErrors.firstName}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label htmlFor="lastName" className="block text-xs font-medium text-slate-300 mb-1">
-                  Last Name
-                </label>
-                <input
-                  id="lastName"
-                  name="lastName"
-                  type="text"
-                  value={formData.lastName}
-                  onChange={handleChange}
-                  placeholder="Doe"
-                  className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border ${
-                    fieldErrors.lastName ? 'border-red-500 focus:ring-red-500' : 'border-slate-800 focus:ring-indigo-500'
-                  } text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2`}
-                />
-                {fieldErrors.lastName && (
-                  <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> {fieldErrors.lastName}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Employee ID */}
-            <div>
-              <label htmlFor="employeeId" className="block text-xs font-medium text-slate-300 mb-1">
-                Employee ID
-              </label>
+        {/* Wireframe Form matching Image 1 */}
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <label className="block text-slate-300 font-medium mb-1">Company Name *</label>
               <input
-                id="employeeId"
-                name="employeeId"
                 type="text"
-                value={formData.employeeId}
-                onChange={handleChange}
-                placeholder="e.g. EMP-101"
-                className={`w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border ${
-                  fieldErrors.employeeId ? 'border-red-500 focus:ring-red-500' : 'border-slate-800 focus:ring-indigo-500'
-                } text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2`}
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="e.g. Odoo India"
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
-              {fieldErrors.employeeId && (
-                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {fieldErrors.employeeId}
-                </p>
-              )}
+              {fieldErrors.companyName && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.companyName}</p>}
             </div>
 
-            {/* Email Address */}
             <div>
-              <label htmlFor="email" className="block text-xs font-medium text-slate-300 mb-1">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  placeholder="employee@company.com"
-                  className={`w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border ${
-                    fieldErrors.email ? 'border-red-500 focus:ring-red-500' : 'border-slate-800 focus:ring-indigo-500'
-                  } text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2`}
-                />
-              </div>
-              {fieldErrors.email && (
-                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {fieldErrors.email}
-                </p>
-              )}
+              <label className="block text-slate-300 font-medium mb-1">Code *</label>
+              <input
+                type="text"
+                maxLength={4}
+                value={companyCode}
+                onChange={(e) => setCompanyCode(e.target.value)}
+                placeholder="e.g. OI"
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 font-mono font-bold uppercase placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center"
+              />
+              {fieldErrors.companyCode && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.companyCode}</p>}
             </div>
+          </div>
 
-            {/* Password Field */}
+          <div>
+            <label className="block text-slate-300 font-medium mb-1">Admin Full Name *</label>
+            <input
+              type="text"
+              value={adminName}
+              onChange={(e) => setAdminName(e.target.value)}
+              placeholder="e.g. Subhradeep"
+              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {fieldErrors.adminName && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.adminName}</p>}
+          </div>
+
+          <div>
+            <label className="block text-slate-300 font-medium mb-1">Admin Email Address *</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="e.g. admin@odooindia.com"
+              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            {fieldErrors.email && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.email}</p>}
+          </div>
+
+          <div>
+            <label className="block text-slate-300 font-medium mb-1">Phone Number</label>
+            <input
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="e.g. +91 9876543210"
+              className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="password" className="block text-xs font-medium text-slate-300 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  className={`w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border ${
-                    fieldErrors.password ? 'border-red-500 focus:ring-red-500' : 'border-slate-800 focus:ring-indigo-500'
-                  } text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2`}
-                />
-              </div>
-              {fieldErrors.password && (
-                <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {fieldErrors.password}
-                </p>
-              )}
-
-              {/* Password Rule Indicators */}
-              <div className="mt-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 space-y-1.5 text-xs">
-                <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">
-                  Password Requirements
-                </span>
-                <div className="flex items-center gap-2">
-                  {hasMinLen ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <X className="w-3.5 h-3.5 text-slate-600" />
-                  )}
-                  <span className={hasMinLen ? 'text-emerald-300' : 'text-slate-500'}>
-                    At least 8 characters long
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasNumber ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <X className="w-3.5 h-3.5 text-slate-600" />
-                  )}
-                  <span className={hasNumber ? 'text-emerald-300' : 'text-slate-500'}>
-                    Contains at least one number (0-9)
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasSpecialChar ? (
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                  ) : (
-                    <X className="w-3.5 h-3.5 text-slate-600" />
-                  )}
-                  <span className={hasSpecialChar ? 'text-emerald-300' : 'text-slate-500'}>
-                    Contains at least one special character (!@#$%^&*)
-                  </span>
-                </div>
-              </div>
+              <label className="block text-slate-300 font-medium mb-1">Password *</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {fieldErrors.password && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.password}</p>}
             </div>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-600/20 text-sm flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                'Create Account'
-              )}
-            </button>
-          </form>
-        )}
+            <div>
+              <label className="block text-slate-300 font-medium mb-1">Confirm Password *</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {fieldErrors.confirmPassword && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.confirmPassword}</p>}
+            </div>
+          </div>
 
-        {/* Footer Link */}
-        <div className="mt-8 text-center text-xs text-slate-400">
-          Already have a Dayflow account?{' '}
-          <Link href="/signin" className="text-indigo-400 hover:text-indigo-300 font-semibold underline">
-            Sign in here
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-3 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-black rounded-xl transition-all shadow-lg shadow-purple-600/30 text-sm mt-2"
+          >
+            {isSubmitting ? 'Creating Account...' : 'Sign Up'}
+          </button>
+        </form>
+
+        <div className="text-center text-xs text-slate-400 pt-2 border-t border-slate-800/80">
+          Already have an account?{' '}
+          <Link href="/signin" className="text-indigo-400 font-bold hover:underline">
+            Sign In
           </Link>
         </div>
       </div>

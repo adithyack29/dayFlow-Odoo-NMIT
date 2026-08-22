@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { AttendanceStatus } from '@prisma/client';
+import { logAdminAudit } from '@/lib/audit';
 
 export async function PUT(request: Request) {
   try {
@@ -73,6 +74,14 @@ export async function PUT(request: Request) {
         },
       });
     }
+
+    // LOG CONSOLIDATED ADMIN AUDIT LOG
+    await logAdminAudit({
+      actorUserId: session.userId,
+      action: 'ATTENDANCE_OVERRIDE',
+      targetUserId: userId,
+      details: `Overrode attendance for date ${date} to status ${newStatus}. Admin remark: "${adminNote.trim()}"`,
+    });
 
     return NextResponse.json({
       success: true,

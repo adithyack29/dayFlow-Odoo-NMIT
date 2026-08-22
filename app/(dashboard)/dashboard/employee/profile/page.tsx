@@ -1,242 +1,208 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Building2,
   User,
-  ArrowLeft,
-  Lock,
-  Upload,
+  Shield,
+  Briefcase,
+  Building,
+  Key,
   FileText,
-  Save,
+  Award,
   CheckCircle2,
   AlertCircle,
-  Phone,
-  MapPin,
-  Mail,
-  Briefcase,
-  DollarSign,
+  Save,
+  Plus,
   Trash2,
 } from 'lucide-react';
+import TopNavBar from '@/app/components/TopNavBar';
 
-interface DocumentItem {
-  id: string;
-  name: string;
-  url: string;
-  fileType: string;
-  size: number;
-  uploadedAt: string;
-}
-
-interface UserProfile {
+interface UserProfileData {
   id: string;
   employeeId: string;
   email: string;
   role: 'EMPLOYEE' | 'ADMIN';
-  isEmailVerified: boolean;
-  profile?: {
+  profile: {
+    id: string;
     firstName: string;
     lastName: string;
     phone?: string;
     address?: string;
     designation: string;
     department: string;
-    joiningDate: string;
-    baseSalary: number;
-    housingAllowance: number;
-    otherAllowances: number;
     profilePictureUrl?: string;
-    documents?: string;
-  };
+
+    // Private Info
+    jobPosition?: string;
+    managerName?: string;
+    location?: string;
+    residingAddress?: string;
+    dateOfBirth?: string;
+    nationality?: string;
+    personalEmail?: string;
+    gender?: string;
+    maritalStatus?: string;
+
+    // Bank Details
+    bankAccountNumber?: string;
+    bankName?: string;
+    ifscCode?: string;
+
+    // About & Skills
+    aboutText?: string;
+    skillsJson?: string;
+  } | null;
 }
 
-export default function EmployeeProfilePage() {
+export default function EmployeeSelfProfilePage() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
 
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [userData, setUserData] = useState<UserProfileData | null>(null);
+  const [activeTab, setActiveTab] = useState<'resume' | 'private' | 'bank' | 'security' | 'about' | 'skills'>('resume');
+
   const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploadingPic, setIsUploadingPic] = useState(false);
-  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Editable state (Employees can ONLY edit phone & address)
+  // Permitted Editable Fields for Employee
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [docName, setDocName] = useState('');
+  const [location, setLocation] = useState('');
+  const [residingAddress, setResidingAddress] = useState('');
 
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Password Change State
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // About & Skills
+  const [aboutText, setAboutText] = useState('');
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [newSkill, setNewSkill] = useState('');
 
   useEffect(() => {
-    async function fetchProfile() {
+    async function loadData() {
       try {
-        const response = await fetch('/api/auth/me');
-        if (!response.ok) {
+        const resMe = await fetch('/api/auth/me');
+        if (!resMe.ok) {
           router.push('/signin');
           return;
         }
-        const data = await response.json();
-        const u = data.user as UserProfile;
-        setUser(u);
-        setPhone(u.profile?.phone || '');
-        setAddress(u.profile?.address || '');
 
-        if (u.profile?.documents) {
-          try {
-            setDocuments(JSON.parse(u.profile.documents));
-          } catch {
-            setDocuments([]);
+        const meData = await resMe.json();
+        const resProf = await fetch(`/api/profile/${meData.user.userId}`);
+        if (!resProf.ok) throw new Error('Failed to load profile');
+
+        const data = await resProf.json();
+        const u = data.user as UserProfileData;
+        setUserData(u);
+
+        if (u.profile) {
+          const p = u.profile;
+          setPhone(p.phone || '');
+          setAddress(p.address || '');
+          setLocation(p.location || 'Head Office');
+          setResidingAddress(p.residingAddress || p.address || '');
+          setAboutText(p.aboutText || '');
+
+          if (p.skillsJson) {
+            try {
+              setSkillTags(JSON.parse(p.skillsJson));
+            } catch {
+              setSkillTags(['React', 'TypeScript', 'HRMS']);
+            }
+          } else {
+            setSkillTags(['React', 'TypeScript', 'HRMS']);
           }
         }
       } catch {
-        setErrorMessage('Failed to load profile data');
+        setErrorMessage('Error fetching profile details');
       } finally {
         setLoading(false);
       }
     }
-    fetchProfile();
+    loadData();
   }, [router]);
 
-  // Handle Profile Update submit
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    setSuccessMessage(null);
-    setErrorMessage(null);
-    setFieldErrors({});
+  const handleAddSkill = () => {
+    if (newSkill.trim() && !skillTags.includes(newSkill.trim())) {
+      setSkillTags([...skillTags, newSkill.trim()]);
+      setNewSkill('');
+    }
+  };
 
-    setIsSubmitting(true);
+  const handleRemoveSkill = (skill: string) => {
+    setSkillTags(skillTags.filter((s) => s !== skill));
+  };
+
+  const handleSaveSelfProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
+    setErrorMessage(null);
+    setSaving(true);
 
     try {
-      const response = await fetch(`/api/profile/${user.id}`, {
+      if (!userData) return;
+
+      const payload = {
+        phone,
+        address,
+        location,
+        residingAddress,
+        aboutText,
+        skillsJson: JSON.stringify(skillTags),
+      };
+
+      const res = await fetch(`/api/profile/${userData.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, address }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.errors) {
-          setFieldErrors(data.errors);
-        } else {
-          setErrorMessage(data.error || 'Failed to update profile');
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || 'Failed to update profile');
       } else {
-        setSuccessMessage('Contact details updated successfully!');
+        setMessage('Profile updated successfully!');
       }
     } catch {
-      setErrorMessage('Network error during profile update');
+      setErrorMessage('Network error saving profile');
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
   };
 
-  // Handle Profile Picture upload
-  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
     setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsUploadingPic(true);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('userId', user.id);
-
-    try {
-      const response = await fetch('/api/upload/profile-picture', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setErrorMessage(data.error || 'Image upload failed');
-      } else {
-        setUser((prev) =>
-          prev
-            ? {
-                ...prev,
-                profile: prev.profile
-                  ? { ...prev.profile, profilePictureUrl: data.url }
-                  : undefined,
-              }
-            : null
-        );
-        setSuccessMessage('Profile picture updated successfully!');
-      }
-    } catch {
-      setErrorMessage('Error uploading image file');
-    } finally {
-      setIsUploadingPic(false);
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('New password and confirmation do not match');
+      return;
     }
-  };
-
-  // Handle Document Upload
-  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsUploadingDoc(true);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('userId', user.id);
-    formData.append('documentName', docName);
 
     try {
-      const response = await fetch('/api/upload/document', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setErrorMessage(data.error || 'Document upload failed');
-      } else {
-        setDocuments(data.documents || []);
-        setDocName('');
-        if (docInputRef.current) docInputRef.current.value = '';
-        setSuccessMessage('Document uploaded successfully!');
-      }
-    } catch {
-      setErrorMessage('Error uploading document file');
-    } finally {
-      setIsUploadingDoc(false);
-    }
-  };
-
-  // Handle Document Delete
-  const handleDeleteDocument = async (documentId: string) => {
-    if (!user) return;
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/upload/document', {
-        method: 'DELETE',
+      const res = await fetch('/api/auth/change-password', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, documentId }),
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        setDocuments(data.documents || []);
-        setSuccessMessage('Document removed.');
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.errors?.currentPassword || data.error || 'Failed to change password');
       } else {
-        setErrorMessage(data.error || 'Failed to remove document');
+        setMessage('Password changed successfully!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
       }
     } catch {
-      setErrorMessage('Error deleting document');
+      setErrorMessage('Network error changing password');
     }
   };
 
@@ -251,42 +217,20 @@ export default function EmployeeProfilePage() {
     );
   }
 
-  if (!user) return null;
-
-  const profile = user.profile;
-  const fullName = profile ? `${profile.firstName} ${profile.lastName}` : user.email;
-  const totalSalary = profile
-    ? profile.baseSalary + (profile.housingAllowance || 0) + (profile.otherAllowances || 0)
-    : 0;
+  const name = userData?.profile
+    ? `${userData.profile.firstName} ${userData.profile.lastName}`
+    : userData?.email || 'My Profile';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-slate-900/80 border-b border-slate-800 backdrop-blur-md px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard/employee"
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors border border-slate-700"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <h1 className="font-bold text-lg text-white tracking-tight">Employee Profile Self-Service</h1>
-          </div>
+      <TopNavBar />
 
-          <span className="px-3 py-1 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-xl text-xs font-mono">
-            {user.employeeId}
-          </span>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         {/* Banner Alert Messages */}
-        {successMessage && (
+        {message && (
           <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-200 flex items-center gap-3 text-xs font-semibold">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            {successMessage}
+            {message}
           </div>
         )}
 
@@ -297,245 +241,324 @@ export default function EmployeeProfilePage() {
           </div>
         )}
 
-        {/* Top Header Card with Profile Picture Uploader */}
-        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
-          <div className="flex items-center gap-5">
-            <div className="relative group">
-              {profile?.profilePictureUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={profile.profilePictureUrl}
-                  alt={fullName}
-                  className="w-20 h-20 rounded-2xl object-cover border-2 border-indigo-500/40 shadow-md"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-2xl bg-indigo-950 border-2 border-indigo-800 flex items-center justify-center text-indigo-400 text-2xl font-bold">
-                  {fullName.charAt(0)}
-                </div>
-              )}
-
-              {/* Upload Overlay Button */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingPic}
-                className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 rounded-2xl flex items-center justify-center text-white text-xs font-semibold transition-opacity"
-              >
-                {isUploadingPic ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Upload className="w-4 h-4" />}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png, image/jpeg, image/webp"
-                className="hidden"
-                onChange={handlePictureUpload}
+        {/* Wireframe Header */}
+        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-center gap-6">
+          <div className="w-24 h-24 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0 overflow-hidden">
+            {userData?.profile?.profilePictureUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={userData.profile.profilePictureUrl}
+                alt={name}
+                className="w-full h-full object-cover"
               />
+            ) : (
+              <User className="w-12 h-12 text-indigo-400" />
+            )}
+          </div>
+
+          <div className="space-y-1 text-center md:text-left flex-1">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+              <h1 className="text-2xl font-black text-white tracking-tight">{name}</h1>
+              <span className="px-3 py-1 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-xl text-xs font-mono font-bold self-center md:self-auto">
+                ID: {userData?.employeeId}
+              </span>
             </div>
 
-            <div>
-              <h2 className="text-2xl font-bold text-white">{fullName}</h2>
-              <p className="text-sm text-slate-400 mt-0.5">
-                {profile?.designation || 'Staff'} &bull; {profile?.department || 'Operations'}
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="px-2.5 py-0.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-md text-[10px] font-mono">
-                  {user.role}
-                </span>
-                <span className="text-xs text-slate-500">{user.email}</span>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 text-xs text-slate-400 font-medium">
+              <div>
+                <span className="text-slate-500 block">Company:</span>
+                <span className="text-slate-200 font-semibold">Odoo India</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Department:</span>
+                <span className="text-slate-200 font-semibold">{userData?.profile?.department || 'Engineering'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Manager:</span>
+                <span className="text-slate-200 font-semibold">{userData?.profile?.managerName || 'HR Manager'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Location:</span>
+                <span className="text-slate-200 font-semibold">{location || 'Head Office'}</span>
               </div>
             </div>
           </div>
+        </div>
 
+        {/* Wireframe Tabs Bar (Notice: Salary Info tab DOES NOT RENDER for employee per wireframe rule) */}
+        <div className="flex items-center gap-1 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto text-xs">
           <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploadingPic}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
+            onClick={() => setActiveTab('resume')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'resume' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
           >
-            <Upload className="w-4 h-4" /> Change Profile Picture
+            Resume
+          </button>
+          <button
+            onClick={() => setActiveTab('private')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'private' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Private Info
+          </button>
+          <button
+            onClick={() => setActiveTab('bank')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'bank' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Bank Details
+          </button>
+          <button
+            onClick={() => setActiveTab('security')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'security' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Security
+          </button>
+          <button
+            onClick={() => setActiveTab('about')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'about' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            About
+          </button>
+          <button
+            onClick={() => setActiveTab('skills')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'skills' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Skills
           </button>
         </div>
 
-        {/* Profile Details Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Editable Contact Details Form */}
-          <div className="lg:col-span-2 p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <User className="w-5 h-5 text-indigo-400" /> Editable Personal &amp; Contact Details
-              </h3>
-              <span className="text-xs text-emerald-400 font-semibold bg-emerald-950/80 border border-emerald-800 px-2.5 py-1 rounded-lg">
-                Employee Edit Allowed
-              </span>
+        {/* Tab 1: Resume */}
+        {activeTab === 'resume' && (
+          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-4">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-400" /> Work History &amp; Experience
+            </h2>
+            <div className="space-y-3 text-xs">
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <span className="font-bold text-white text-sm">Software Developer &bull; Dayflow Inc.</span>
+                <span className="text-indigo-400 font-mono block">2023 &ndash; Present</span>
+                <p className="text-slate-400 leading-relaxed pt-1">
+                  Responsible for HRMS development and user interface implementation.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: Private Info */}
+        {activeTab === 'private' && (
+          <form onSubmit={handleSaveSelfProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <User className="w-5 h-5 text-indigo-400" /> Private Information
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Mobile Phone</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Office Location</label>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Residing Address</label>
+                <input
+                  type="text"
+                  value={residingAddress}
+                  onChange={(e) => setResidingAddress(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save Profile Info
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 3: Bank Details (Read Only for Employee) */}
+        {activeTab === 'bank' && (
+          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Building className="w-5 h-5 text-indigo-400" /> Bank &amp; Statutory Details (Read-Only)
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-slate-500 block">Bank Name:</span>
+                <span className="text-slate-200 font-bold">{userData?.profile?.bankName || 'HDFC Bank'}</span>
+              </div>
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-slate-500 block">Account Number:</span>
+                <span className="text-slate-200 font-bold">{userData?.profile?.bankAccountNumber || '50100293849182'}</span>
+              </div>
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <span className="text-slate-500 block">IFSC Code:</span>
+                <span className="text-slate-200 font-bold">{userData?.profile?.ifscCode || 'HDFC0001234'}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab 4: Security */}
+        {activeTab === 'security' && (
+          <form onSubmit={handleChangePassword} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6 max-w-lg">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Key className="w-5 h-5 text-indigo-400" /> Account Security &amp; Change Password
+            </h2>
+
+            <div className="space-y-4 text-xs">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Phone Number
-                </label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+1 (555) 019-2831"
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                  />
-                </div>
-                {fieldErrors.phone && <p className="text-xs text-red-400 mt-1">{fieldErrors.phone}</p>}
+                <label className="block text-slate-300 font-medium mb-1">Current Password *</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Residential Address
-                </label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="100 Executive Parkway, Suite 400..."
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-indigo-500 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-                  />
-                </div>
-                {fieldErrors.address && <p className="text-xs text-red-400 mt-1">{fieldErrors.address}</p>}
+                <label className="block text-slate-300 font-medium mb-1">New Password (Min. 8 Chars) *</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Confirm New Password *</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Key className="w-4 h-4" /> Change Password
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 5: About */}
+        {activeTab === 'about' && (
+          <form onSubmit={handleSaveSelfProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-4">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-400" /> What I Love About My Job
+            </h2>
+
+            <textarea
+              rows={5}
+              value={aboutText}
+              onChange={(e) => setAboutText(e.target.value)}
+              placeholder="Write a brief statement about your job and goals..."
+              className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save About Statement
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 6: Skills */}
+        {activeTab === 'skills' && (
+          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Award className="w-5 h-5 text-indigo-400" /> Technical Skills
+            </h2>
+
+            <div className="space-y-3">
+              <div className="flex gap-2 max-w-md">
+                <input
+                  type="text"
+                  value={newSkill}
+                  onChange={(e) => setNewSkill(e.target.value)}
+                  placeholder="Add skill tag..."
+                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100"
+                />
                 <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl font-semibold text-xs transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2"
+                  type="button"
+                  onClick={handleAddSkill}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1"
                 >
-                  {isSubmitting ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Contact Changes
+                  <Plus className="w-4 h-4" /> Add
                 </button>
               </div>
-            </form>
 
-            {/* Locked Fields Section */}
-            <div className="pt-6 border-t border-slate-800/80 space-y-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-400" /> Read-Only Job &amp; Salary Structure
-                </h4>
-                <span className="text-[11px] text-amber-400/80 font-mono">
-                  🔒 Admin Permission Required to Change
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Designation</span>
-                  <span className="font-semibold text-slate-300">{profile?.designation || 'N/A'}</span>
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Department</span>
-                  <span className="font-semibold text-slate-300">{profile?.department || 'N/A'}</span>
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Joining Date</span>
-                  <span className="font-semibold text-slate-300">
-                    {profile?.joiningDate ? new Date(profile.joiningDate).toLocaleDateString() : 'N/A'}
+              <div className="flex flex-wrap gap-2 pt-2">
+                {skillTags.map((s) => (
+                  <span
+                    key={s}
+                    className="px-3 py-1.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-xl text-xs font-semibold flex items-center gap-2"
+                  >
+                    {s}
+                    <button onClick={() => handleRemoveSkill(s)} className="text-indigo-400 hover:text-rose-400">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
                   </span>
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Base Salary</span>
-                  <span className="font-semibold text-amber-400">${profile?.baseSalary.toLocaleString() || '0'}</span>
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Housing Allowance</span>
-                  <span className="font-semibold text-slate-300">${profile?.housingAllowance.toLocaleString() || '0'}</span>
-                </div>
-                <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                  <span className="text-slate-500 block mb-0.5">Other Allowances</span>
-                  <span className="font-semibold text-slate-300">${profile?.otherAllowances.toLocaleString() || '0'}</span>
-                </div>
+                ))}
               </div>
             </div>
-          </div>
 
-          {/* Right Column: Local Document Management */}
-          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-400" /> Employee Documents
-            </h3>
-
-            {/* Document Uploader */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-              <span className="text-xs font-semibold text-slate-300 block">Upload New Document</span>
-              <input
-                type="text"
-                value={docName}
-                onChange={(e) => setDocName(e.target.value)}
-                placeholder="Document Title (e.g. Passport.pdf)"
-                className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-
+            <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => docInputRef.current?.click()}
-                disabled={isUploadingDoc}
-                className="w-full py-2 bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-800 rounded-lg font-semibold text-xs transition-colors flex items-center justify-center gap-2"
+                onClick={handleSaveSelfProfile}
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
               >
-                {isUploadingDoc ? <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /> : <Upload className="w-4 h-4" />}
-                Choose File &amp; Upload
+                <Save className="w-4 h-4" /> Save Skills
               </button>
-              <input
-                ref={docInputRef}
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.docx"
-                className="hidden"
-                onChange={handleDocumentUpload}
-              />
-            </div>
-
-            {/* Document List */}
-            <div className="space-y-3">
-              <span className="text-xs font-semibold text-slate-400 block uppercase tracking-wider">
-                Uploaded Files ({documents.length})
-              </span>
-
-              {documents.length === 0 ? (
-                <div className="p-6 text-center bg-slate-950/60 rounded-xl border border-slate-800 text-slate-500 text-xs">
-                  No documents uploaded yet.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {documents.map((doc) => (
-                    <div
-                      key={doc.id}
-                      className="p-3 bg-slate-950/80 border border-slate-800/80 rounded-xl flex items-center justify-between text-xs"
-                    >
-                      <div className="flex items-center gap-2.5 truncate max-w-[180px]">
-                        <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
-                        <a
-                          href={doc.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-medium text-slate-200 hover:text-indigo-400 truncate"
-                        >
-                          {doc.name}
-                        </a>
-                      </div>
-
-                      <button
-                        onClick={() => handleDeleteDocument(doc.id)}
-                        className="text-slate-500 hover:text-red-400 p-1 transition-colors"
-                        title="Remove Document"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );

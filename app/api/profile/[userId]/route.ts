@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { z } from 'zod';
+import { createNotificationAndEmailAlert } from '@/lib/notifications';
+import { logAdminAudit } from '@/lib/audit';
 
 // Zod schema for Employee self-update (Phone, Address, Profile Picture only)
 const employeeProfileUpdateSchema = z.object({
@@ -90,7 +92,7 @@ export async function PUT(
       );
     }
 
-    // Access Control Check: Employee trying to modify restricted fields (designation, department, salary, role, email)
+    // Access Control Check: Employee trying to modify restricted fields
     if (session.role === 'EMPLOYEE') {
       const restrictedAttempted = Object.keys(body).filter((key) =>
         ['designation', 'department', 'joiningDate', 'baseSalary', 'housingAllowance', 'otherAllowances', 'email', 'employeeId', 'role', 'firstName', 'lastName'].includes(key)
@@ -184,6 +186,21 @@ export async function PUT(
         otherAllowances: data.otherAllowances ?? 0,
         profilePictureUrl: data.profilePictureUrl,
       },
+    });
+
+    // LOG CONSOLIDATED ADMIN AUDIT LOG
+    await logAdminAudit({
+      actorUserId: session.userId,
+      action: 'PROFILE_EDIT',
+      targetUserId: userId,
+      details: `Admin updated profile for ${data.firstName} ${data.lastName} (${data.department} - ${data.designation})`,
+    });
+
+    // TRIGGER NOTIFICATION & SIMULATED EMAIL ALERT TO EMPLOYEE
+    await createNotificationAndEmailAlert({
+      userId,
+      type: 'PROFILE_UPDATED',
+      message: `Your employment profile details (Designation, Department, Salary) were updated by HR Administration.`,
     });
 
     return NextResponse.json({

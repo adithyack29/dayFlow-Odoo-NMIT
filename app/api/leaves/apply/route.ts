@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { LeaveType } from '@prisma/client';
+import { createNotificationAndEmailAlert } from '@/lib/notifications';
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { leaveType, startDate, endDate, remarks } = body;
+    const { leaveType, startDate, endDate, remarks, attachmentUrl } = body;
 
     const errors: Record<string, string> = {};
 
@@ -27,6 +28,11 @@ export async function POST(request: Request) {
 
     if (!endDate) {
       errors.endDate = 'End date is required';
+    }
+
+    // WIREFRAME RULE: Sick leave MANDATORY attachment requirement
+    if (leaveType === 'SICK' && (!attachmentUrl || !attachmentUrl.trim())) {
+      errors.attachmentUrl = 'A medical certificate attachment is strictly required when applying for Sick Leave.';
     }
 
     if (Object.keys(errors).length > 0) {
@@ -57,18 +63,10 @@ export async function POST(request: Request) {
     const todayObj = new Date(`${todayStr}T00:00:00Z`);
 
     if (leaveType === 'PAID' || leaveType === 'UNPAID') {
-      /*
-       * BACKDATING BUSINESS RULE:
-       * PAID and UNPAID leave requests cannot be backdated; they must start on or after today.
-       */
       if (startObj < todayObj) {
         errors.startDate = `${leaveType} leave requests cannot be backdated. Please select a start date on or after today.`;
       }
     } else if (leaveType === 'SICK') {
-      /*
-       * BACKDATING BUSINESS RULE:
-       * SICK leave requests allow up to 7 days of backdating to accommodate medical emergencies.
-       */
       const maxBackdateObj = new Date(todayObj);
       maxBackdateObj.setDate(todayObj.getDate() - 7);
 
@@ -86,7 +84,6 @@ export async function POST(request: Request) {
     }
 
     // 3. Overlap Prevention Check
-    // Query active (PENDING or APPROVED) leave requests for this employee
     const activeLeaves = await db.leaveRequest.findMany({
       where: {
         userId: session.userId,
@@ -98,7 +95,6 @@ export async function POST(request: Request) {
       const existingStart = new Date(existing.startDate);
       const existingEnd = new Date(existing.endDate);
 
-      // Overlap condition: (newStart <= existingEnd) AND (newEnd >= existingStart)
       if (startObj <= existingEnd && endObj >= existingStart) {
         const eStartStr = existingStart.toISOString().split('T')[0];
         const eEndStr = existingEnd.toISOString().split('T')[0];
@@ -121,9 +117,40 @@ export async function POST(request: Request) {
         startDate: startObj,
         endDate: endObj,
         remarks: remarks?.trim() || '',
+        attachmentUrl: attachmentUrl?.trim() || null,
         status: 'PENDING',
       },
+      include: {
+        user: {
+          select: {
+            profile: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
+        },
+      },
     });
+
+    // 5. TRIGGER NOTIFICATION TO ALL ADMINS
+    const empName = newLeave.user.profile
+      ? `${newLeave.user.profile.firstName} ${newLeave.user.profile.lastName}`
+      : session.email;
+
+    const admins = await db.user.findMany({
+      where: { role: 'ADMIN' },
+      select: { id: true },
+    });
+
+    for (const admin of admins) {
+      await createNotificationAndEmailAlert({
+        userId: admin.id,
+        type: 'LEAVE_SUBMITTED',
+        message: `${empName} submitted a new ${leaveType} leave request for ${startDate} to ${endDate}.`,
+      });
+    }
 
     return NextResponse.json(
       {

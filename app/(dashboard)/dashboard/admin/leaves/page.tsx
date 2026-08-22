@@ -16,7 +16,9 @@ import {
   Save,
   MessageSquare,
   User,
+  AlertTriangle,
 } from 'lucide-react';
+import NotificationBell from '@/app/components/NotificationBell';
 
 interface AdminLeaveItem {
   id: string;
@@ -35,6 +37,8 @@ interface AdminLeaveItem {
       firstName: string;
       lastName: string;
       department?: string;
+      paidLeaveBalance: number;
+      sickLeaveBalance: number;
     };
   };
 }
@@ -56,9 +60,13 @@ export default function AdminLeavesPage() {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  /*
+   * DIFFERENTIATOR 1 - REAL-TIME LIVE POLLING:
+   * Interval-based polling fetches fresh pending leave requests every 12 seconds.
+   * This updates the actionable approval queue dynamically without manual page refresh.
+   */
   const fetchAdminLeaves = async (status: string) => {
     try {
-      setLoading(true);
       const response = await fetch(`/api/leaves/admin?status=${status}`);
       if (!response.ok) {
         if (response.status === 401) {
@@ -82,6 +90,13 @@ export default function AdminLeavesPage() {
 
   useEffect(() => {
     fetchAdminLeaves(filterStatus);
+
+    // 12-second interval poll for live dynamic queue updates
+    const interval = setInterval(() => {
+      fetchAdminLeaves(filterStatus);
+    }, 12000);
+
+    return () => clearInterval(interval);
   }, [filterStatus, router]);
 
   const handleOpenReview = (item: AdminLeaveItem, action: 'APPROVED' | 'REJECTED') => {
@@ -100,7 +115,6 @@ export default function AdminLeavesPage() {
     e.preventDefault();
     if (!reviewItem) return;
 
-    // MANDATORY REJECTION COMMENT VALIDATION
     if (reviewActionStatus === 'REJECTED' && !adminComment.trim()) {
       setReviewError('An admin comment explaining the rejection reason is strictly required.');
       return;
@@ -174,9 +188,12 @@ export default function AdminLeavesPage() {
             </div>
           </div>
 
-          <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-800 rounded-xl text-xs font-mono">
-            Actionable Queue
-          </span>
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+            <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-800 rounded-xl text-xs font-mono hidden sm:inline">
+              Actionable Queue
+            </span>
+          </div>
         </div>
       </header>
 
@@ -205,7 +222,7 @@ export default function AdminLeavesPage() {
                 <FileCheck className="w-5 h-5 text-amber-400" /> Actionable Leave Approval Queue
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Review employee time-off requests. Approving automatically updates the Attendance table in a transaction.
+                Review employee time-off requests. Approving automatically updates Attendance and decrements Leave Balances.
               </p>
             </div>
 
@@ -276,7 +293,7 @@ export default function AdminLeavesPage() {
                   <th className="py-3 px-4">Type</th>
                   <th className="py-3 px-4">Dates</th>
                   <th className="py-3 px-4">Days</th>
-                  <th className="py-3 px-4">Remarks</th>
+                  <th className="py-3 px-4">Remaining Balance</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -302,6 +319,10 @@ export default function AdminLeavesPage() {
                     const durationDays = calculateDays(l.startDate, l.endDate);
                     const sDate = new Date(l.startDate).toLocaleDateString();
                     const eDate = new Date(l.endDate).toLocaleDateString();
+
+                    const pBal = l.user.profile?.paidLeaveBalance ?? 12;
+                    const sBal = l.user.profile?.sickLeaveBalance ?? 8;
+                    const remBal = l.leaveType === 'PAID' ? `${pBal} Days` : l.leaveType === 'SICK' ? `${sBal} Days` : 'Unlimited';
 
                     return (
                       <tr key={l.id} className="hover:bg-slate-800/40 transition-colors">
@@ -336,8 +357,8 @@ export default function AdminLeavesPage() {
                           {durationDays} {durationDays === 1 ? 'Day' : 'Days'}
                         </td>
 
-                        <td className="py-3.5 px-4 text-slate-300 max-w-[180px] truncate" title={l.remarks}>
-                          {l.remarks || 'No remarks'}
+                        <td className="py-3.5 px-4 font-mono font-bold text-slate-300">
+                          {remBal}
                         </td>
 
                         <td className="py-3.5 px-4">
@@ -419,9 +440,20 @@ export default function AdminLeavesPage() {
                   {reviewItem.user.employeeId} &bull; Type: {reviewItem.leaveType}
                 </span>
                 <p className="text-slate-400 text-[11px] pt-1">
-                  Requested Dates: {new Date(reviewItem.startDate).toLocaleDateString()} to{' '}
-                  {new Date(reviewItem.endDate).toLocaleDateString()} ({calculateDays(reviewItem.startDate, reviewItem.endDate)} Days)
+                  Requested Duration: {calculateDays(reviewItem.startDate, reviewItem.endDate)} Days
                 </p>
+
+                {/* Balance Indicator */}
+                <div className="pt-2 border-t border-slate-800 flex justify-between text-[11px]">
+                  <span className="text-slate-400">Remaining Balance:</span>
+                  <span className="font-bold text-indigo-300 font-mono">
+                    {reviewItem.leaveType === 'PAID'
+                      ? `${reviewItem.user.profile?.paidLeaveBalance ?? 12} Days Paid`
+                      : reviewItem.leaveType === 'SICK'
+                      ? `${reviewItem.user.profile?.sickLeaveBalance ?? 8} Days Sick`
+                      : 'Unlimited Unpaid'}
+                  </span>
+                </div>
               </div>
 
               <div>

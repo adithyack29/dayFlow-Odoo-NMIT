@@ -9,16 +9,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthenticated' }, { status: 401 });
     }
 
-    // Server-side Access Control: Admin only
-    if (session.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Forbidden: Admin access required' },
-        { status: 403 }
-      );
-    }
-
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search')?.trim().toLowerCase() || '';
+
+    const isAdmin = session.role === 'ADMIN';
 
     // Query employees from DB with profiles
     const employees = await db.user.findMany({
@@ -39,11 +33,16 @@ export async function GET(request: Request) {
             designation: true,
             department: true,
             joiningDate: true,
-            baseSalary: true,
-            housingAllowance: true,
-            otherAllowances: true,
             profilePictureUrl: true,
-            documents: true,
+            // Sensitive fields included ONLY for Admin
+            ...(isAdmin
+              ? {
+                  baseSalary: true,
+                  housingAllowance: true,
+                  otherAllowances: true,
+                  documents: true,
+                }
+              : {}),
           },
         },
       },

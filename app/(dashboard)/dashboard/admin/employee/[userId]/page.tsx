@@ -1,41 +1,33 @@
 'use client';
 
-import React, { useEffect, useState, useRef, use } from 'react';
+import React, { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Building2,
-  Crown,
   ArrowLeft,
-  Upload,
-  FileText,
-  Save,
-  CheckCircle2,
-  AlertCircle,
-  Phone,
-  MapPin,
+  User,
+  Shield,
   Briefcase,
   DollarSign,
-  User,
+  Building,
+  Key,
+  FileText,
+  Award,
+  CheckCircle2,
+  AlertCircle,
+  Save,
+  Plus,
   Trash2,
 } from 'lucide-react';
+import TopNavBar from '@/app/components/TopNavBar';
 
-interface DocumentItem {
-  id: string;
-  name: string;
-  url: string;
-  fileType: string;
-  size: number;
-  uploadedAt: string;
-}
-
-interface TargetUserProfile {
+interface UserProfileData {
   id: string;
   employeeId: string;
   email: string;
   role: 'EMPLOYEE' | 'ADMIN';
-  isEmailVerified: boolean;
-  profile?: {
+  profile: {
+    id: string;
     firstName: string;
     lastName: string;
     phone?: string;
@@ -43,232 +35,305 @@ interface TargetUserProfile {
     designation: string;
     department: string;
     joiningDate: string;
-    baseSalary: number;
-    housingAllowance: number;
-    otherAllowances: number;
     profilePictureUrl?: string;
-    documents?: string;
-  };
+
+    // Private Info Tab
+    jobPosition?: string;
+    managerName?: string;
+    location?: string;
+    residingAddress?: string;
+    dateOfBirth?: string;
+    nationality?: string;
+    personalEmail?: string;
+    gender?: string;
+    maritalStatus?: string;
+    dateOfJoining?: string;
+    empCode?: string;
+
+    // Bank Details Tab
+    bankAccountNumber?: string;
+    bankName?: string;
+    ifscCode?: string;
+    uanNo?: string;
+    panNo?: string;
+
+    // Salary Info Tab
+    wageType?: string;
+    monthlyWage?: number;
+    yearlyWage?: number;
+    workingDaysPerWeek?: number;
+    breakTimeHours?: number;
+    baseSalary?: number;
+    housingAllowance?: number;
+    standardAllowance?: number;
+    performanceBonus?: number;
+    otherAllowances?: number;
+    fixedAllowance?: number;
+    pfEmployee?: number;
+    pfEmployer?: number;
+    professionalTax?: number;
+
+    // About & Skills Tabs
+    aboutText?: string;
+    skillsJson?: string;
+    certificationsJson?: string;
+    resumeJson?: string;
+  } | null;
 }
 
-export default function AdminEmployeeProfilePage({ params }: { params: Promise<{ userId: string }> }) {
-  const resolvedParams = use(params);
-  const targetUserId = resolvedParams.userId;
+export default function EmployeeProfileInspectorPage({
+  params,
+}: {
+  params: Promise<{ userId: string }>;
+}) {
+  const { userId } = use(params);
   const router = useRouter();
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
+  const [viewerSession, setViewerSession] = useState<{ userId: string; role: 'EMPLOYEE' | 'ADMIN' } | null>(null);
+  const [userData, setUserData] = useState<UserProfileData | null>(null);
+  const [activeTab, setActiveTab] = useState<'resume' | 'private' | 'salary' | 'bank' | 'security' | 'about' | 'skills'>('resume');
 
-  const [user, setUser] = useState<TargetUserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploadingPic, setIsUploadingPic] = useState(false);
-  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Admin full edit fields state
+  // Editable Form Fields
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
-  const [designation, setDesignation] = useState('');
   const [department, setDepartment] = useState('');
-  const [baseSalary, setBaseSalary] = useState<number>(0);
-  const [housingAllowance, setHousingAllowance] = useState<number>(0);
-  const [otherAllowances, setOtherAllowances] = useState<number>(0);
+  const [designation, setDesignation] = useState('');
 
-  const [docName, setDocName] = useState('');
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  // Private Info Fields
+  const [jobPosition, setJobPosition] = useState('');
+  const [managerName, setManagerName] = useState('');
+  const [location, setLocation] = useState('');
+  const [residingAddress, setResidingAddress] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [nationality, setNationality] = useState('');
+  const [personalEmail, setPersonalEmail] = useState('');
+  const [gender, setGender] = useState('');
+  const [maritalStatus, setMaritalStatus] = useState('');
 
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Bank Details Fields
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [ifscCode, setIfscCode] = useState('');
+  const [uanNo, setUanNo] = useState('');
+  const [panNo, setPanNo] = useState('');
+
+  // Salary Calculations State
+  const [monthlyWage, setMonthlyWage] = useState<number>(50000);
+  const [workingDaysPerWeek, setWorkingDaysPerWeek] = useState<number>(5);
+  const [breakTimeHours, setBreakTimeHours] = useState<number>(1.0);
+
+  // Security Tab Change Password State
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  // About & Skills
+  const [aboutText, setAboutText] = useState('');
+  const [skillTags, setSkillTags] = useState<string[]>([]);
+  const [newSkill, setNewSkill] = useState('');
 
   useEffect(() => {
-    async function fetchTargetProfile() {
+    async function loadData() {
       try {
-        const response = await fetch(`/api/profile/${targetUserId}`);
-        if (!response.ok) {
-          if (response.status === 403) {
-            router.push('/dashboard/employee');
-            return;
-          }
-          router.push('/dashboard/admin');
-          return;
+        const [resMe, resUser] = await Promise.all([
+          fetch('/api/auth/me'),
+          fetch(`/api/profile/${userId}`),
+        ]);
+
+        if (resMe.ok) {
+          const m = await resMe.json();
+          setViewerSession({ userId: m.user.userId, role: m.user.role });
         }
-        const data = await response.json();
-        const u = data.user as TargetUserProfile;
-        setUser(u);
+
+        if (!resUser.ok) {
+          if (resUser.status === 401) router.push('/signin');
+          throw new Error('Failed to load profile details');
+        }
+
+        const data = await resUser.json();
+        const u = data.user as UserProfileData;
+        setUserData(u);
 
         if (u.profile) {
-          setFirstName(u.profile.firstName || '');
-          setLastName(u.profile.lastName || '');
-          setPhone(u.profile.phone || '');
-          setAddress(u.profile.address || '');
-          setDesignation(u.profile.designation || '');
-          setDepartment(u.profile.department || '');
-          setBaseSalary(u.profile.baseSalary || 0);
-          setHousingAllowance(u.profile.housingAllowance || 0);
-          setOtherAllowances(u.profile.otherAllowances || 0);
+          const p = u.profile;
+          setFirstName(p.firstName || '');
+          setLastName(p.lastName || '');
+          setPhone(p.phone || '');
+          setAddress(p.address || '');
+          setDepartment(p.department || '');
+          setDesignation(p.designation || '');
 
-          if (u.profile.documents) {
+          setJobPosition(p.jobPosition || p.designation || '');
+          setManagerName(p.managerName || 'HR Manager');
+          setLocation(p.location || 'Head Office');
+          setResidingAddress(p.residingAddress || p.address || '');
+          setDateOfBirth(p.dateOfBirth || '');
+          setNationality(p.nationality || 'Indian');
+          setPersonalEmail(p.personalEmail || u.email);
+          setGender(p.gender || 'Male');
+          setMaritalStatus(p.maritalStatus || 'Single');
+
+          setBankAccountNumber(p.bankAccountNumber || '');
+          setBankName(p.bankName || '');
+          setIfscCode(p.ifscCode || '');
+          setUanNo(p.uanNo || '');
+          setPanNo(p.panNo || '');
+
+          setMonthlyWage(p.monthlyWage ?? 50000);
+          setWorkingDaysPerWeek(p.workingDaysPerWeek ?? 5);
+          setBreakTimeHours(p.breakTimeHours ?? 1.0);
+
+          setAboutText(p.aboutText || '');
+          if (p.skillsJson) {
             try {
-              setDocuments(JSON.parse(u.profile.documents));
+              setSkillTags(JSON.parse(p.skillsJson));
             } catch {
-              setDocuments([]);
+              setSkillTags(['React', 'TypeScript', 'HRMS']);
             }
+          } else {
+            setSkillTags(['React', 'TypeScript', 'HRMS']);
           }
         }
       } catch {
-        setErrorMessage('Failed to load employee profile');
+        setErrorMessage('Error fetching profile information');
       } finally {
         setLoading(false);
       }
     }
-    fetchTargetProfile();
-  }, [targetUserId, router]);
+    loadData();
+  }, [userId, router]);
 
-  // Admin Submit Full Profile Updates
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Dynamic Salary Component Auto-Calculations (Exact Wireframe Formulas)
+  const yearlyWage = monthlyWage * 12;
+  const basicSalary = monthlyWage * 0.5; // 50% of Wage
+  const hra = basicSalary * 0.5; // 50% of Basic
+  const standardAllowance = 4167.0; // Fixed ₹4,167
+  const performanceBonus = basicSalary * 0.0833; // 8.33% of Basic
+  const lta = basicSalary * 0.08333; // 8.333% of Basic
+  const sumOther = basicSalary + hra + standardAllowance + performanceBonus + lta;
+  const fixedAllowance = Math.max(0, monthlyWage - sumOther); // Remainder plug value
+  const pfEmployee = basicSalary * 0.12; // 12% of Basic
+  const pfEmployer = basicSalary * 0.12; // 12% of Basic
+  const professionalTax = 200.0; // Fixed ₹200/mo
+
+  const isAdmin = viewerSession?.role === 'ADMIN';
+  const isOwnProfile = viewerSession?.userId === userId;
+
+  const handleAddSkill = () => {
+    if (newSkill.trim() && !skillTags.includes(newSkill.trim())) {
+      setSkillTags([...skillTags, newSkill.trim()]);
+      setNewSkill('');
+    }
+  };
+
+  const handleRemoveSkill = (skill: string) => {
+    setSkillTags(skillTags.filter((s) => s !== skill));
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSuccessMessage(null);
+    setMessage(null);
     setErrorMessage(null);
-    setFieldErrors({});
-
-    setIsSubmitting(true);
+    setSaving(true);
 
     try {
-      const response = await fetch(`/api/profile/${targetUserId}`, {
+      const payload: Record<string, unknown> = {
+        phone,
+        address,
+        location,
+        residingAddress,
+        aboutText,
+        skillsJson: JSON.stringify(skillTags),
+      };
+
+      if (isAdmin) {
+        payload.firstName = firstName;
+        payload.lastName = lastName;
+        payload.department = department;
+        payload.designation = designation;
+        payload.jobPosition = jobPosition;
+        payload.managerName = managerName;
+        payload.dateOfBirth = dateOfBirth;
+        payload.nationality = nationality;
+        payload.personalEmail = personalEmail;
+        payload.gender = gender;
+        payload.maritalStatus = maritalStatus;
+
+        payload.bankAccountNumber = bankAccountNumber;
+        payload.bankName = bankName;
+        payload.ifscCode = ifscCode;
+        payload.uanNo = uanNo;
+        payload.panNo = panNo;
+
+        payload.monthlyWage = monthlyWage;
+        payload.yearlyWage = yearlyWage;
+        payload.workingDaysPerWeek = workingDaysPerWeek;
+        payload.breakTimeHours = breakTimeHours;
+        payload.baseSalary = basicSalary;
+        payload.housingAllowance = hra;
+        payload.standardAllowance = standardAllowance;
+        payload.performanceBonus = performanceBonus;
+        payload.otherAllowances = lta;
+        payload.fixedAllowance = fixedAllowance;
+        payload.pfEmployee = pfEmployee;
+        payload.pfEmployer = pfEmployer;
+        payload.professionalTax = professionalTax;
+      }
+
+      const res = await fetch(`/api/profile/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          phone,
-          address,
-          designation,
-          department,
-          baseSalary: Number(baseSalary),
-          housingAllowance: Number(housingAllowance),
-          otherAllowances: Number(otherAllowances),
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.errors) {
-          setFieldErrors(data.errors);
-        } else {
-          setErrorMessage(data.error || 'Failed to update profile');
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || 'Failed to update profile');
       } else {
-        setSuccessMessage('Employee profile & salary structure updated successfully by Admin!');
+        setMessage('Profile updated successfully!');
       }
     } catch {
-      setErrorMessage('Network error during profile update');
+      setErrorMessage('Network error saving profile');
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
   };
 
-  // Picture Upload Handler
-  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
     setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsUploadingPic(true);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('userId', targetUserId);
-
-    try {
-      const response = await fetch('/api/upload/profile-picture', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setErrorMessage(data.error || 'Image upload failed');
-      } else {
-        setUser((prev) =>
-          prev
-            ? {
-                ...prev,
-                profile: prev.profile
-                  ? { ...prev.profile, profilePictureUrl: data.url }
-                  : undefined,
-              }
-            : null
-        );
-        setSuccessMessage('Employee profile picture updated!');
-      }
-    } catch {
-      setErrorMessage('Error uploading profile picture');
-    } finally {
-      setIsUploadingPic(false);
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('New password and confirmation do not match');
+      return;
     }
-  };
-
-  // Document Upload Handler
-  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    setIsUploadingDoc(true);
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('userId', targetUserId);
-    formData.append('documentName', docName);
 
     try {
-      const response = await fetch('/api/upload/document', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        setErrorMessage(data.error || 'Document upload failed');
-      } else {
-        setDocuments(data.documents || []);
-        setDocName('');
-        if (docInputRef.current) docInputRef.current.value = '';
-        setSuccessMessage('Document attached to employee profile!');
-      }
-    } catch {
-      setErrorMessage('Error uploading document file');
-    } finally {
-      setIsUploadingDoc(false);
-    }
-  };
-
-  // Document Delete Handler
-  const handleDeleteDocument = async (documentId: string) => {
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/upload/document', {
-        method: 'DELETE',
+      const res = await fetch('/api/auth/change-password', {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: targetUserId, documentId }),
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
       });
 
-      const data = await response.json();
-      if (response.ok) {
-        setDocuments(data.documents || []);
-        setSuccessMessage('Document deleted.');
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.errors?.currentPassword || data.error || 'Failed to change password');
       } else {
-        setErrorMessage(data.error || 'Failed to remove document');
+        setMessage('Password changed successfully!');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
       }
     } catch {
-      setErrorMessage('Error deleting document');
+      setErrorMessage('Network error changing password');
     }
   };
 
@@ -276,49 +341,27 @@ export default function AdminEmployeeProfilePage({ params }: { params: Promise<{
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
         <div className="flex items-center gap-3 text-slate-400">
-          <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-          <span>Loading Employee Profile Inspector...</span>
+          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <span>Loading Employee Profile...</span>
         </div>
       </div>
     );
   }
 
-  if (!user) return null;
-
-  const profile = user.profile;
-  const fullName = profile ? `${profile.firstName} ${profile.lastName}` : user.email;
+  const name = userData?.profile
+    ? `${userData.profile.firstName} ${userData.profile.lastName}`
+    : userData?.email || 'Employee Profile';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-slate-900/80 border-b border-slate-800 backdrop-blur-md px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/dashboard/admin"
-              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors border border-slate-700"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <div className="flex items-center gap-2">
-              <Crown className="w-5 h-5 text-amber-400" />
-              <h1 className="font-bold text-lg text-white tracking-tight">Admin Profile Inspector</h1>
-            </div>
-          </div>
+      <TopNavBar />
 
-          <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-800 rounded-xl text-xs font-mono">
-            Target: {user.employeeId}
-          </span>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         {/* Banner Alert Messages */}
-        {successMessage && (
+        {message && (
           <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-200 flex items-center gap-3 text-xs font-semibold">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            {successMessage}
+            {message}
           </div>
         )}
 
@@ -329,279 +372,611 @@ export default function AdminEmployeeProfilePage({ params }: { params: Promise<{
           </div>
         )}
 
-        {/* Top Header Card */}
-        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl">
-          <div className="flex items-center gap-5">
-            <div className="relative group">
-              {profile?.profilePictureUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={profile.profilePictureUrl}
-                  alt={fullName}
-                  className="w-20 h-20 rounded-2xl object-cover border-2 border-amber-500/40 shadow-md"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-2xl bg-amber-950 border-2 border-amber-800 flex items-center justify-center text-amber-400 text-2xl font-bold">
-                  {fullName.charAt(0)}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploadingPic}
-                className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 rounded-2xl flex items-center justify-center text-white text-xs font-semibold transition-opacity"
-              >
-                {isUploadingPic ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Upload className="w-4 h-4" />}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png, image/jpeg, image/webp"
-                className="hidden"
-                onChange={handlePictureUpload}
+        {/* Wireframe Header Section */}
+        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl flex flex-col md:flex-row items-center gap-6">
+          <div className="w-24 h-24 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 shrink-0 overflow-hidden">
+            {userData?.profile?.profilePictureUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={userData.profile.profilePictureUrl}
+                alt={name}
+                className="w-full h-full object-cover"
               />
-            </div>
-
-            <div>
-              <h2 className="text-2xl font-bold text-white">{fullName}</h2>
-              <p className="text-sm text-amber-400 mt-0.5">
-                {profile?.designation || 'Staff'} &bull; {profile?.department || 'Operations'}
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="px-2.5 py-0.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-md text-[10px] font-mono">
-                  {user.role}
-                </span>
-                <span className="text-xs text-slate-500">{user.email}</span>
-              </div>
-            </div>
+            ) : (
+              <User className="w-12 h-12 text-indigo-400" />
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploadingPic}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-all flex items-center gap-2"
-            >
-              <Upload className="w-4 h-4" /> Upload Avatar
-            </button>
+          <div className="space-y-1 text-center md:text-left flex-1">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+              <h1 className="text-2xl font-black text-white tracking-tight">{name}</h1>
+              <span className="px-3 py-1 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-xl text-xs font-mono font-bold self-center md:self-auto">
+                ID: {userData?.employeeId}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2 text-xs text-slate-400 font-medium">
+              <div>
+                <span className="text-slate-500 block">Company:</span>
+                <span className="text-slate-200 font-semibold">Odoo India</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Department:</span>
+                <span className="text-slate-200 font-semibold">{department || 'Engineering'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Manager:</span>
+                <span className="text-slate-200 font-semibold">{managerName || 'HR Admin'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Location:</span>
+                <span className="text-slate-200 font-semibold">{location || 'Head Office'}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Full Admin Edit Form */}
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Left Column: Full Details Form */}
-            <div className="lg:col-span-2 p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Crown className="w-5 h-5 text-amber-400" /> Admin Full Edit Controls
-                </h3>
-                <span className="text-xs text-amber-400 font-semibold bg-amber-950/80 border border-amber-800 px-2.5 py-1 rounded-lg">
-                  Full Admin Edit Mode
-                </span>
+        {/* Wireframe 7 Tabs Bar (Exact Order) */}
+        <div className="flex items-center gap-1 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto text-xs">
+          <button
+            onClick={() => setActiveTab('resume')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'resume' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Resume
+          </button>
+          <button
+            onClick={() => setActiveTab('private')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'private' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Private Info
+          </button>
+
+          {/* Wireframe Rule: Salary Info Tab MUST NOT RENDER AT ALL for non-admin viewers */}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('salary')}
+              className={`py-2 px-4 rounded-xl font-bold transition-all ${
+                activeTab === 'salary' ? 'bg-amber-600 text-slate-950 shadow-md' : 'text-amber-400 hover:text-amber-300'
+              }`}
+            >
+              👑 Salary Info (Admin-Only)
+            </button>
+          )}
+
+          <button
+            onClick={() => setActiveTab('bank')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'bank' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Bank Details
+          </button>
+
+          {isOwnProfile && (
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`py-2 px-4 rounded-xl font-bold transition-all ${
+                activeTab === 'security' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Security
+            </button>
+          )}
+
+          <button
+            onClick={() => setActiveTab('about')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'about' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            About
+          </button>
+
+          <button
+            onClick={() => setActiveTab('skills')}
+            className={`py-2 px-4 rounded-xl font-bold transition-all ${
+              activeTab === 'skills' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Skills
+          </button>
+        </div>
+
+        {/* Tab 1: Resume */}
+        {activeTab === 'resume' && (
+          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-4">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-400" /> Work History &amp; Experience
+            </h2>
+            <div className="space-y-3 text-xs">
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <span className="font-bold text-white text-sm">Senior Software Engineer &bull; Dayflow Inc.</span>
+                <span className="text-indigo-400 font-mono block">2023 &ndash; Present (2 Years)</span>
+                <p className="text-slate-400 leading-relaxed pt-1">
+                  Lead full-stack developer responsible for core HRMS module architecture, database optimization, and team leadership.
+                </p>
               </div>
 
-              {/* Name Fields */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">First Name</label>
-                  <input
-                    type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                  {fieldErrors.firstName && <p className="text-xs text-red-400 mt-1">{fieldErrors.firstName}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Last Name</label>
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                  {fieldErrors.lastName && <p className="text-xs text-red-400 mt-1">{fieldErrors.lastName}</p>}
-                </div>
-              </div>
-
-              {/* Contact Fields */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Phone Number</label>
-                  <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Address</label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                </div>
-              </div>
-
-              {/* Job Details */}
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800/80">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Designation</label>
-                  <input
-                    type="text"
-                    value={designation}
-                    onChange={(e) => setDesignation(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                  {fieldErrors.designation && <p className="text-xs text-red-400 mt-1">{fieldErrors.designation}</p>}
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Department</label>
-                  <input
-                    type="text"
-                    value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                  />
-                  {fieldErrors.department && <p className="text-xs text-red-400 mt-1">{fieldErrors.department}</p>}
-                </div>
-              </div>
-
-              {/* Salary Structure */}
-              <div className="pt-4 border-t border-slate-800/80 space-y-4">
-                <h4 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                  <DollarSign className="w-4 h-4" /> Admin Salary Structure Controls
-                </h4>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Base Salary ($)</label>
-                    <input
-                      type="number"
-                      value={baseSalary}
-                      onChange={(e) => setBaseSalary(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-amber-300 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Housing Allowance ($)</label>
-                    <input
-                      type="number"
-                      value={housingAllowance}
-                      onChange={(e) => setHousingAllowance(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Other Allowances ($)</label>
-                    <input
-                      type="number"
-                      value={otherAllowances}
-                      onChange={(e) => setOtherAllowances(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-6 py-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs transition-all shadow-lg shadow-amber-600/20 flex items-center gap-2"
-                >
-                  {isSubmitting ? <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
-                  Save Full Employee Changes
-                </button>
-              </div>
-            </div>
-
-            {/* Right Column: Admin Document Manager */}
-            <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-indigo-400" /> Admin Document Manager
-              </h3>
-
-              {/* Admin Upload Box */}
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
-                <span className="text-xs font-semibold text-slate-300 block">Attach Employee File</span>
-                <input
-                  type="text"
-                  value={docName}
-                  onChange={(e) => setDocName(e.target.value)}
-                  placeholder="Document Title (e.g. Contract_2026.pdf)"
-                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => docInputRef.current?.click()}
-                  disabled={isUploadingDoc}
-                  className="w-full py-2 bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800 rounded-lg font-semibold text-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  {isUploadingDoc ? <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Upload Document File
-                </button>
-                <input
-                  ref={docInputRef}
-                  type="file"
-                  accept=".pdf,.png,.jpg,.jpeg,.docx"
-                  className="hidden"
-                  onChange={handleDocumentUpload}
-                />
-              </div>
-
-              {/* Document List */}
-              <div className="space-y-3">
-                <span className="text-xs font-semibold text-slate-400 block uppercase tracking-wider">
-                  Employee Documents ({documents.length})
-                </span>
-
-                {documents.length === 0 ? (
-                  <div className="p-6 text-center bg-slate-950/60 rounded-xl border border-slate-800 text-slate-500 text-xs">
-                    No documents attached yet.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        className="p-3 bg-slate-950/80 border border-slate-800/80 rounded-xl flex items-center justify-between text-xs"
-                      >
-                        <div className="flex items-center gap-2.5 truncate max-w-[180px]">
-                          <FileText className="w-4 h-4 text-indigo-400 shrink-0" />
-                          <a
-                            href={doc.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-medium text-slate-200 hover:text-amber-400 truncate"
-                          >
-                            {doc.name}
-                          </a>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteDocument(doc.id)}
-                          className="text-slate-500 hover:text-red-400 p-1 transition-colors"
-                          title="Delete File"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                <span className="font-bold text-white text-sm">Software Developer &bull; Tech Solutions</span>
+                <span className="text-slate-500 font-mono block">2021 &ndash; 2023 (2 Years)</span>
+                <p className="text-slate-400 leading-relaxed pt-1">
+                  Built client dashboards, SQL optimization pipelines, and integrated REST APIs.
+                </p>
               </div>
             </div>
           </div>
-        </form>
+        )}
+
+        {/* Tab 2: Private Info */}
+        {activeTab === 'private' && (
+          <form onSubmit={handleSaveProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <User className="w-5 h-5 text-indigo-400" /> Private Information
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Job Position</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={jobPosition}
+                  onChange={(e) => setJobPosition(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Manager</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={managerName}
+                  onChange={(e) => setManagerName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Mobile Phone</label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Office Location</label>
+                <input
+                  type="text"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Residing Address</label>
+                <input
+                  type="text"
+                  value={residingAddress}
+                  onChange={(e) => setResidingAddress(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Date of Birth</label>
+                <input
+                  type="date"
+                  disabled={!isAdmin}
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Nationality</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={nationality}
+                  onChange={(e) => setNationality(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Personal Email</label>
+                <input
+                  type="email"
+                  disabled={!isAdmin}
+                  value={personalEmail}
+                  onChange={(e) => setPersonalEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Gender</label>
+                <select
+                  disabled={!isAdmin}
+                  value={gender}
+                  onChange={(e) => setGender(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save Private Info
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 3: Salary Info (Admin-Only Wireframe Computation Engine) */}
+        {isAdmin && activeTab === 'salary' && (
+          <form onSubmit={handleSaveProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div>
+                <h2 className="text-base font-bold text-amber-400 flex items-center gap-2">
+                  <DollarSign className="w-5 h-5" /> Salary Information (Admin Calculation Engine)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  All components auto-calculate from Monthly Wage. Worked example: Wage ₹50,000 &rarr; Basic ₹25,000, HRA ₹12,500.
+                </p>
+              </div>
+              <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-800 rounded-xl text-xs font-mono">
+                Wage Type: Fixed Wage
+              </span>
+            </div>
+
+            {/* Wage Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs bg-slate-950 p-4 rounded-xl border border-slate-800">
+              <div>
+                <label className="block text-amber-400 font-bold mb-1">Monthly Wage (₹) *</label>
+                <input
+                  type="number"
+                  value={monthlyWage}
+                  onChange={(e) => setMonthlyWage(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-white font-bold text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Yearly Wage (Calculated)</label>
+                <input
+                  type="text"
+                  disabled
+                  value={`₹${yearlyWage.toLocaleString()} / Year`}
+                  className="w-full px-3 py-2 bg-slate-900/50 border border-slate-800 rounded-xl text-slate-300 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Working Days in a Week</label>
+                <input
+                  type="number"
+                  value={workingDaysPerWeek}
+                  onChange={(e) => setWorkingDaysPerWeek(Number(e.target.value))}
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-slate-100"
+                />
+              </div>
+            </div>
+
+            {/* Wireframe Salary Components Table */}
+            <div className="space-y-3">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Salary Components Breakdown</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
+                    <tr>
+                      <th className="py-2.5 px-4">Component Name</th>
+                      <th className="py-2.5 px-4">Computation Rule</th>
+                      <th className="py-2.5 px-4 text-right">Monthly Amount</th>
+                      <th className="py-2.5 px-4 text-right">Yearly Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">Basic Salary</td>
+                      <td className="py-3 px-4 text-slate-400">50% of Wage</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300">₹{basicSalary.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(basicSalary * 12).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">House Rent Allowance (HRA)</td>
+                      <td className="py-3 px-4 text-slate-400">50% of Basic Salary</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300">₹{hra.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(hra * 12).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">Standard Allowance</td>
+                      <td className="py-3 px-4 text-slate-400">Fixed ₹4,167/month</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300">₹{standardAllowance.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(standardAllowance * 12).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">Performance Bonus</td>
+                      <td className="py-3 px-4 text-slate-400">8.33% of Basic Salary</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300">₹{performanceBonus.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(performanceBonus * 12).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">Leave Travel Allowance (LTA)</td>
+                      <td className="py-3 px-4 text-slate-400">8.333% of Basic Salary</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-indigo-300">₹{lta.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(lta * 12).toLocaleString()}</td>
+                    </tr>
+                    <tr>
+                      <td className="py-3 px-4 font-bold text-white">Fixed Allowance</td>
+                      <td className="py-3 px-4 text-slate-400">Wage - Sum of Components (Plug Value)</td>
+                      <td className="py-3 px-4 text-right font-mono font-bold text-amber-400">₹{fixedAllowance.toLocaleString()}</td>
+                      <td className="py-3 px-4 text-right font-mono text-slate-400">₹{(fixedAllowance * 12).toLocaleString()}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Statutory Deductions Table */}
+            <div className="space-y-3 pt-2">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Provident Fund (PF) &amp; Tax Deductions</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-semibold block">Employee PF (12% of Basic)</span>
+                  <p className="font-mono text-base font-bold text-rose-400">₹{pfEmployee.toLocaleString()} / month</p>
+                </div>
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-slate-400 font-semibold block">Professional Tax</span>
+                  <p className="font-mono text-base font-bold text-rose-400">₹{professionalTax.toLocaleString()} / month</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save Salary Configuration
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 4: Bank Details */}
+        {activeTab === 'bank' && (
+          <form onSubmit={handleSaveProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Building className="w-5 h-5 text-indigo-400" /> Bank &amp; Statutory Details
+            </h2>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="block text-slate-400 mb-1">Bank Name</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  placeholder="e.g. HDFC Bank"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">Account Number</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={bankAccountNumber}
+                  onChange={(e) => setBankAccountNumber(e.target.value)}
+                  placeholder="e.g. 50100293849182"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">IFSC Code</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={ifscCode}
+                  onChange={(e) => setIfscCode(e.target.value)}
+                  placeholder="e.g. HDFC0001234"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">PAN Number</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={panNo}
+                  onChange={(e) => setPanNo(e.target.value)}
+                  placeholder="e.g. ABCDE1234F"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-400 mb-1">UAN Number (PF)</label>
+                <input
+                  type="text"
+                  disabled={!isAdmin}
+                  value={uanNo}
+                  onChange={(e) => setUanNo(e.target.value)}
+                  placeholder="e.g. 100928374651"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 disabled:opacity-60"
+                />
+              </div>
+            </div>
+
+            {isAdmin && (
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4" /> Save Bank Details
+                </button>
+              </div>
+            )}
+          </form>
+        )}
+
+        {/* Tab 5: Security (Change Password) */}
+        {isOwnProfile && activeTab === 'security' && (
+          <form onSubmit={handleChangePassword} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6 max-w-lg">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Key className="w-5 h-5 text-indigo-400" /> Account Security &amp; Change Password
+            </h2>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Current Password *</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">New Password (Min. 8 Chars) *</label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-medium mb-1">Confirm New Password *</label>
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Key className="w-4 h-4" /> Change Password
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 6: About */}
+        {activeTab === 'about' && (
+          <form onSubmit={handleSaveProfile} className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-4">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <FileText className="w-5 h-5 text-indigo-400" /> What I Love About My Job
+            </h2>
+
+            <textarea
+              rows={5}
+              value={aboutText}
+              onChange={(e) => setAboutText(e.target.value)}
+              placeholder="Write a brief personal statement about your career goals and what inspires you at work..."
+              className="w-full p-4 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save About Statement
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Tab 7: Skills */}
+        {activeTab === 'skills' && (
+          <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <Award className="w-5 h-5 text-indigo-400" /> Technical Skills &amp; Certifications
+            </h2>
+
+            {/* Skills Tag Section */}
+            <div className="space-y-3">
+              <div className="flex gap-2 max-w-md">
+                <input
+                  type="text"
+                  value={newSkill}
+                  onChange={(e) => setNewSkill(e.target.value)}
+                  placeholder="Add skill tag (e.g. Next.js)..."
+                  className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddSkill}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {skillTags.map((s) => (
+                  <span
+                    key={s}
+                    className="px-3 py-1.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-xl text-xs font-semibold flex items-center gap-2"
+                  >
+                    {s}
+                    <button onClick={() => handleRemoveSkill(s)} className="text-indigo-400 hover:text-rose-400">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2"
+              >
+                <Save className="w-4 h-4" /> Save Skills
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

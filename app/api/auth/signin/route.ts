@@ -1,38 +1,41 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword, signJWT, AUTH_COOKIE_NAME } from '@/lib/auth';
-import { signInSchema, formatZodErrors } from '@/lib/validation';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const loginInput = (body.email || body.loginId || '').trim();
+    const password = body.password || '';
 
-    // 1. Validate payload with Zod schema
-    const parseResult = signInSchema.safeParse(body);
-    if (!parseResult.success) {
-      const fieldErrors = formatZodErrors(parseResult.error);
-      return NextResponse.json({ errors: fieldErrors }, { status: 400 });
+    const errors: Record<string, string> = {};
+    if (!loginInput) errors.email = 'Login ID or Email address is required';
+    if (!password) errors.password = 'Password is required';
+
+    if (Object.keys(errors).length > 0) {
+      return NextResponse.json({ errors }, { status: 400 });
     }
 
-    const { email, password } = parseResult.data;
-
-    // 2. Fetch user from database
-    const user = await db.user.findUnique({
-      where: { email },
+    // Search user by email OR employeeId (Login ID)
+    const user = await db.user.findFirst({
+      where: {
+        OR: [
+          { email: loginInput.toLowerCase() },
+          { employeeId: loginInput.toUpperCase() },
+        ],
+      },
     });
 
-    // 3. Verify user existence & password matching
-    // Returns generic authentication error without leaking whether email vs password failed
     const isPasswordValid = user ? await verifyPassword(password, user.passwordHash) : false;
 
     if (!user || !isPasswordValid) {
       return NextResponse.json(
-        { errors: { general: 'Invalid email address or password. Please try again.' } },
+        { errors: { general: 'Invalid Login ID / Email address or password. Please try again.' } },
         { status: 401 }
       );
     }
 
-    // 4. Issue JWT token
+    // Issue JWT token
     const token = await signJWT({
       userId: user.id,
       email: user.email,
@@ -41,10 +44,8 @@ export async function POST(request: Request) {
       isEmailVerified: user.isEmailVerified,
     });
 
-    // 5. Determine dashboard redirect route based on role
     const redirectUrl = user.role === 'ADMIN' ? '/dashboard/admin' : '/dashboard/employee';
 
-    // 6. Return response setting secure httpOnly session cookie
     const response = NextResponse.json(
       {
         success: true,

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { createNotificationAndEmailAlert } from '@/lib/notifications';
+import { logAdminAudit } from '@/lib/audit';
 
 export async function PUT(request: Request) {
   try {
@@ -46,6 +48,7 @@ export async function PUT(request: Request) {
 
     const currentProfile = await db.profile.findUnique({
       where: { id: profileId },
+      include: { user: true },
     });
 
     if (!currentProfile) {
@@ -79,6 +82,21 @@ export async function PUT(request: Request) {
       });
 
       return updated;
+    });
+
+    // 3. LOG CONSOLIDATED ADMIN AUDIT LOG
+    await logAdminAudit({
+      actorUserId: session.userId,
+      action: 'SALARY_UPDATE',
+      targetUserId: currentProfile.userId,
+      details: `Updated salary for ${currentProfile.firstName} ${currentProfile.lastName}: Base $${currentProfile.baseSalary} -> $${numBase}, Housing $${numHousing}, Other $${numOther}`,
+    });
+
+    // 4. TRIGGER NOTIFICATION & SIMULATED EMAIL ALERT TO EMPLOYEE
+    await createNotificationAndEmailAlert({
+      userId: currentProfile.userId,
+      type: 'SALARY_UPDATED',
+      message: `Your compensation structure was updated by HR Administration. New Base Salary: $${numBase.toLocaleString()}.`,
     });
 
     return NextResponse.json({

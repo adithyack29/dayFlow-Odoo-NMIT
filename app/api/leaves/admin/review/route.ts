@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { LeaveStatus, AttendanceStatus } from '@prisma/client';
+import { createNotificationAndEmailAlert } from '@/lib/notifications';
+import { logAdminAudit } from '@/lib/audit';
 
 export async function PUT(request: Request) {
   try {
@@ -45,29 +47,51 @@ export async function PUT(request: Request) {
 
     const leaveRequest = await db.leaveRequest.findUnique({
       where: { id: leaveRequestId },
+      include: {
+        user: {
+          include: {
+            profile: true,
+          },
+        },
+      },
     });
 
-    if (!leaveRequest) {
-      return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
+    if (!leaveRequest || !leaveRequest.user.profile) {
+      return NextResponse.json({ error: 'Leave request or employee profile not found' }, { status: 404 });
     }
 
-    /*
-     * TRANSACTIONAL ATTENDANCE SYNC (MILESTONE 4 HOOK):
-     * When a LeaveRequest transitions to APPROVED:
-     * We update the LeaveRequest and upsert the employee's Attendance records for every date
-     * in the range [startDate, endDate] setting status = LEAVE inside the same database transaction.
-     *
-     * EDGE CASE PROTECTION:
-     * If a day in the leave range has already been recorded as PRESENT or HALF_DAY by an actual check-in,
-     * it is NOT overwritten.
-     *
-     * EDGE CASE NOTE:
-     * If a leave request is later reversed/rejected after approval, attendance records are not reverted
-     * automatically to keep hackathon scope sane.
-     */
-
+    const profile = leaveRequest.user.profile;
     const startDateObj = new Date(leaveRequest.startDate);
     const endDateObj = new Date(leaveRequest.endDate);
+
+    // Calculate duration in days
+    const diffTime = Math.abs(endDateObj.getTime() - startDateObj.getTime());
+    const durationDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    /*
+     * LEAVE BALANCE CHECK & APPROVAL GUARD:
+     * Decrement balance ONLY on leave approval.
+     * Block approval if requested duration exceeds remaining PAID or SICK leave balance.
+     */
+    if (status === 'APPROVED') {
+      if (leaveRequest.leaveType === 'PAID' && profile.paidLeaveBalance < durationDays) {
+        return NextResponse.json(
+          {
+            error: `Cannot approve leave: Requested duration (${durationDays} days) exceeds employee’s remaining Paid Leave balance (${profile.paidLeaveBalance} days remaining).`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (leaveRequest.leaveType === 'SICK' && profile.sickLeaveBalance < durationDays) {
+        return NextResponse.json(
+          {
+            error: `Cannot approve leave: Requested duration (${durationDays} days) exceeds employee’s remaining Sick Leave balance (${profile.sickLeaveBalance} days remaining).`,
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     const datesToSync: string[] = [];
     const cur = new Date(startDateObj);
@@ -88,8 +112,21 @@ export async function PUT(request: Request) {
         },
       });
 
-      // 2. If APPROVED, sync dates into Attendance table
+      // 2. Decrement Leave Balance if APPROVED
       if (status === 'APPROVED') {
+        if (leaveRequest.leaveType === 'PAID') {
+          await tx.profile.update({
+            where: { id: profile.id },
+            data: { paidLeaveBalance: profile.paidLeaveBalance - durationDays },
+          });
+        } else if (leaveRequest.leaveType === 'SICK') {
+          await tx.profile.update({
+            where: { id: profile.id },
+            data: { sickLeaveBalance: profile.sickLeaveBalance - durationDays },
+          });
+        }
+
+        // Sync dates into Attendance table
         const existingAttendances = await tx.attendance.findMany({
           where: {
             userId: leaveRequest.userId,
@@ -102,7 +139,6 @@ export async function PUT(request: Request) {
         for (const dateStr of datesToSync) {
           const existing = attendanceMap.get(dateStr);
 
-          // EDGE CASE: Do NOT overwrite an already recorded check-in day (PRESENT or HALF_DAY)
           if (existing && (existing.status === AttendanceStatus.PRESENT || existing.status === AttendanceStatus.HALF_DAY)) {
             continue;
           }
@@ -128,6 +164,37 @@ export async function PUT(request: Request) {
 
       return updated;
     });
+
+    // 3. LOG CONSOLIDATED ADMIN AUDIT LOG
+    await logAdminAudit({
+      actorUserId: session.userId,
+      action: status === 'APPROVED' ? 'LEAVE_APPROVED' : 'LEAVE_REJECTED',
+      targetUserId: leaveRequest.userId,
+      details: `${status === 'APPROVED' ? 'Approved' : 'Rejected'} ${leaveRequest.leaveType} leave for ${profile.firstName} ${profile.lastName} (${durationDays} days). Comment: ${adminComment || 'None'}`,
+    });
+
+    // 4. TRIGGER NOTIFICATION & SIMULATED EMAIL ALERT TO EMPLOYEE
+    const sStr = startDateObj.toISOString().split('T')[0];
+    const eStr = endDateObj.toISOString().split('T')[0];
+    const notifMsg = `Your ${leaveRequest.leaveType} leave request for ${sStr} to ${eStr} was ${status.toLowerCase()}${adminComment ? `. Admin comment: "${adminComment}"` : '.'}`;
+
+    await createNotificationAndEmailAlert({
+      userId: leaveRequest.userId,
+      type: 'LEAVE_STATUS',
+      message: notifMsg,
+    });
+
+    // 5. TRIGGER LOW LEAVE BALANCE ALERT IF REMAINING BALANCE <= 3 DAYS
+    const newPaidBal = leaveRequest.leaveType === 'PAID' ? profile.paidLeaveBalance - durationDays : profile.paidLeaveBalance;
+    const newSickBal = leaveRequest.leaveType === 'SICK' ? profile.sickLeaveBalance - durationDays : profile.sickLeaveBalance;
+
+    if (status === 'APPROVED' && (newPaidBal <= 3 || newSickBal <= 3)) {
+      await createNotificationAndEmailAlert({
+        userId: leaveRequest.userId,
+        type: 'LOW_LEAVE_BALANCE',
+        message: `Low Leave Balance Alert: You have ${newPaidBal} paid leave days and ${newSickBal} sick leave days remaining.`,
+      });
+    }
 
     return NextResponse.json({
       success: true,

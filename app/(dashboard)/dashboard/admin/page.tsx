@@ -4,384 +4,503 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Building2,
-  Crown,
-  LogOut,
   Users,
-  CheckCircle2,
-  XCircle,
-  FileCheck,
   Search,
-  ArrowRight,
+  Plus,
   User,
   AlertCircle,
-  Clock,
-  Briefcase,
-  Eye,
-  DollarSign,
+  X,
+  Save,
+  CheckCircle2,
   BarChart3,
+  History,
 } from 'lucide-react';
+import TopNavBar from '@/app/components/TopNavBar';
 
 interface EmployeeItem {
   id: string;
   employeeId: string;
   email: string;
   role: 'EMPLOYEE' | 'ADMIN';
-  isEmailVerified: boolean;
-  createdAt: string;
   profile?: {
     firstName: string;
     lastName: string;
-    phone?: string;
-    address?: string;
-    designation: string;
     department: string;
-    baseSalary: number;
+    designation: string;
     profilePictureUrl?: string;
   };
-}
-
-interface AdminDashboardStats {
-  totalEmployees: number;
-  todayPresentCount: number;
-  todayAbsentCount: number;
-  pendingLeavesCount: number;
-  todayDate: string;
+  todayStatus: 'PRESENT' | 'LEAVE' | 'ABSENT';
 }
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<AdminDashboardStats | null>(null);
+
   const [employees, setEmployees] = useState<EmployeeItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchAdminData() {
-      try {
-        const [dashRes, empRes] = await Promise.all([
-          fetch('/api/admin/dashboard'),
-          fetch('/api/admin/employees'),
-        ]);
+  // New Employee Onboarding Modal State
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
+  const [department, setDepartment] = useState('Engineering');
+  const [designation, setDesignation] = useState('Software Engineer');
+  const [joiningYear, setJoiningYear] = useState(new Date().getFullYear().toString());
 
-        if (!dashRes.ok || !empRes.ok) {
-          if (dashRes.status === 401 || empRes.status === 401) {
-            router.push('/signin');
-            return;
-          }
-          if (dashRes.status === 403 || empRes.status === 403) {
-            router.push('/dashboard/employee');
-            return;
-          }
-          throw new Error('Failed to load administrative data');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Created Employee Credentials Display State
+  const [createdCredentials, setCreatedCredentials] = useState<{
+    loginId: string;
+    firstTimePassword: string;
+    name: string;
+  } | null>(null);
+
+  const fetchEmployees = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('/api/admin/employees');
+      if (!response.ok) {
+        if (response.status === 401) {
+          router.push('/signin');
+          return;
         }
-
-        const dashData = await dashRes.json();
-        const empData = await empRes.json();
-
-        setStats(dashData.stats);
-        setEmployees(empData.employees || []);
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-          setError(err.message);
-        } else {
-          setError('An error occurred loading the admin panel');
+        if (response.status === 403) {
+          router.push('/dashboard/employee');
+          return;
         }
-      } finally {
-        setLoading(false);
+        throw new Error('Failed to load employee directory');
       }
-    }
-    fetchAdminData();
-  }, [router]);
 
-  const handleSignOut = async () => {
-    await fetch('/api/auth/signout', { method: 'POST' });
-    router.push('/signin');
-    router.refresh();
+      const data = await response.json();
+      const rawEmployees = data.employees || [];
+
+      // Fetch live status mapping via /api/attendance/live-status
+      let attendanceMap: Record<string, string> = {};
+      let leaveUserIds: string[] = [];
+
+      try {
+        const resLive = await fetch('/api/attendance/live-status');
+        if (resLive.ok) {
+          const lData = await resLive.json();
+          attendanceMap = lData.attendanceMap || {};
+          leaveUserIds = lData.leaveUserIds || [];
+        }
+      } catch {
+        // Fallback gracefully
+      }
+
+      const leaveSet = new Set(leaveUserIds);
+
+      const mapped: EmployeeItem[] = rawEmployees.map((emp: EmployeeItem) => {
+        let todayStatus: 'PRESENT' | 'LEAVE' | 'ABSENT' = 'ABSENT';
+        const attStat = attendanceMap[emp.id];
+
+        if (attStat === 'PRESENT' || attStat === 'HALF_DAY') {
+          todayStatus = 'PRESENT';
+        } else if (leaveSet.has(emp.id) || attStat === 'LEAVE') {
+          todayStatus = 'LEAVE';
+        } else {
+          todayStatus = 'ABSENT';
+        }
+
+        return { ...emp, todayStatus };
+      });
+
+      setEmployees(mapped);
+    } catch {
+      setError('Error loading employee directory');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Filter employee list by search term
+  useEffect(() => {
+    fetchEmployees();
+  }, [router]);
+
+  const handleOpenModal = () => {
+    setFirstName('');
+    setLastName('');
+    setEmail('');
+    setDepartment('Engineering');
+    setDesignation('Software Engineer');
+    setJoiningYear(new Date().getFullYear().toString());
+    setModalError(null);
+    setFieldErrors({});
+    setCreatedCredentials(null);
+    setIsModalOpen(true);
+  };
+
+  const handleCreateEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setModalError(null);
+    setFieldErrors({});
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch('/api/admin/employees/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          email,
+          department,
+          designation,
+          joiningYear: Number(joiningYear),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.errors) {
+          setFieldErrors(data.errors);
+        } else {
+          setModalError(data.error || 'Failed to onboard employee');
+        }
+      } else {
+        setCreatedCredentials({
+          loginId: data.loginId,
+          firstTimePassword: data.firstTimePassword,
+          name: `${firstName} ${lastName}`,
+        });
+        await fetchEmployees();
+      }
+    } catch {
+      setModalError('Network error during employee onboarding');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const filteredEmployees = employees.filter((emp) => {
     const q = searchQuery.toLowerCase();
     const fullName = emp.profile ? `${emp.profile.firstName} ${emp.profile.lastName}`.toLowerCase() : '';
+    const dept = emp.profile?.department.toLowerCase() || '';
+    const desig = emp.profile?.designation.toLowerCase() || '';
     return (
       emp.employeeId.toLowerCase().includes(q) ||
       emp.email.toLowerCase().includes(q) ||
       fullName.includes(q) ||
-      (emp.profile?.department && emp.profile.department.toLowerCase().includes(q))
+      dept.includes(q) ||
+      desig.includes(q)
     );
   });
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="flex items-center gap-3 text-slate-400">
-          <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-          <span>Loading Admin Workspace...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-        <div className="text-red-400 text-center max-w-sm p-6 bg-slate-900 border border-slate-800 rounded-2xl">
-          <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-3" />
-          <p className="font-semibold">{error}</p>
-          <button
-            onClick={() => router.push('/signin')}
-            className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold"
-          >
-            Back to Sign In
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-12">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-slate-900/80 border-b border-slate-800 backdrop-blur-md px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      {/* Top Nav Bar */}
+      <TopNavBar />
+
+      {/* Main Employee Directory Landing Page */}
+      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        {/* Header & Action Controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/90 border border-slate-800 p-6 rounded-2xl">
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+              <Users className="w-6 h-6 text-indigo-400" /> Employee Directory
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Select an employee card to view/edit profile details. Live status indicator shows attendance for today.
+            </p>
+          </div>
+
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-500/20 border border-amber-500/30 rounded-xl flex items-center justify-center text-amber-400">
-              <Crown className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="font-bold text-lg text-white tracking-tight">Dayflow HRMS</h1>
-              <span className="text-xs text-amber-400 font-semibold flex items-center gap-1">
-                <span>⚡</span> Administrator Portal
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2.5 px-3 py-1.5 bg-amber-950/40 border border-amber-800/50 rounded-xl text-xs">
-              <Crown className="w-4 h-4 text-amber-400" />
-              <span className="font-semibold text-amber-200">Admin Control</span>
-            </div>
-
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-2 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold transition-all border border-slate-700"
-            >
-              <LogOut className="w-4 h-4" /> Sign Out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Admin Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-        {/* Header Hero */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-slate-900 border border-amber-800/30 p-8 shadow-xl">
-          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div>
-              <span className="inline-flex items-center gap-2 px-3 py-1 bg-amber-950/80 border border-amber-700/50 rounded-full text-amber-300 text-xs font-medium mb-3">
-                <Crown className="w-3.5 h-3.5 text-amber-400" /> Live Database Overview
-              </span>
-              <h2 className="text-3xl font-bold text-white tracking-tight">
-                HR Management Dashboard
-              </h2>
-              <p className="text-slate-300 text-sm mt-1">
-                Real-time workforce metrics, live attendance logs, and employee directory management.
-              </p>
-            </div>
-
-            {/* Quick Action Navigation Bar */}
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/dashboard/admin/attendance"
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-md shadow-indigo-600/20"
-              >
-                <Clock className="w-4 h-4 text-emerald-300" /> Attendance Oversight &rarr;
-              </Link>
-              <Link
-                href="/dashboard/admin/leaves"
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-amber-600/20"
-              >
-                <FileCheck className="w-4 h-4 text-slate-950" /> Leave Approvals &rarr;
-              </Link>
-              <Link
-                href="/dashboard/admin/payroll"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-emerald-600/20"
-              >
-                <DollarSign className="w-4 h-4 text-slate-950" /> Payroll Control &rarr;
-              </Link>
-              <Link
-                href="/dashboard/admin/reports"
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-sky-600/20"
-              >
-                <BarChart3 className="w-4 h-4 text-white" /> Reports &amp; Analytics &rarr;
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        {/* 1. Summary Widgets (Computed Live from DB) */}
-        <div>
-          <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
-            Live System Aggregate Metrics
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Widget 1: Total Employees */}
-            <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm space-y-2">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                <span>Total Employees</span>
-                <Users className="w-5 h-5 text-indigo-400" />
-              </div>
-              <p className="text-3xl font-extrabold text-white">{stats?.totalEmployees ?? 0}</p>
-              <span className="text-[11px] text-slate-500 block">Registered in SQLite Database</span>
-            </div>
-
-            {/* Widget 2: Today's Present */}
-            <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm space-y-2">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                <span>Today&apos;s Present</span>
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-              </div>
-              <p className="text-3xl font-extrabold text-emerald-400">{stats?.todayPresentCount ?? 0}</p>
-              <span className="text-[11px] text-slate-500 block">Date: {stats?.todayDate}</span>
-            </div>
-
-            {/* Widget 3: Today's Absent */}
-            <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm space-y-2">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                <span>Today&apos;s Absent</span>
-                <XCircle className="w-5 h-5 text-rose-400" />
-              </div>
-              <p className="text-3xl font-extrabold text-rose-400">{stats?.todayAbsentCount ?? 0}</p>
-              <span className="text-[11px] text-slate-500 block">Checked out or absent</span>
-            </div>
-
-            {/* Widget 4: Pending Leaves */}
-            <div className="p-5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm space-y-2">
-              <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                <span>Pending Leaves</span>
-                <FileCheck className="w-5 h-5 text-amber-400" />
-              </div>
-              <p className="text-3xl font-extrabold text-amber-400">{stats?.pendingLeavesCount ?? 0}</p>
-              <span className="text-[11px] text-slate-500 block">Requires HR Approval</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Employee Directory Table & Switcher */}
-        <div className="p-6 bg-slate-900/90 border border-slate-800 rounded-2xl space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
-            <div>
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Users className="w-5 h-5 text-indigo-400" /> Employee Directory &amp; Profile Inspector
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Click on any employee to inspect or edit their profile, job role, and salary structure.
-              </p>
-            </div>
-
-            {/* Search Filter */}
-            <div className="relative w-full sm:w-72">
+            {/* Search Bar */}
+            <div className="relative max-w-xs">
               <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search name, ID, email..."
-                className="w-full pl-9 pr-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                placeholder="Search name, ID, department..."
+                className="w-full pl-9 pr-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
               />
             </div>
-          </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider font-semibold border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Employee</th>
-                  <th className="py-3 px-4">ID</th>
-                  <th className="py-3 px-4">Department</th>
-                  <th className="py-3 px-4">Designation</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {filteredEmployees.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500">
-                      No employees match your search query.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredEmployees.map((emp) => {
-                    const fullName = emp.profile
-                      ? `${emp.profile.firstName} ${emp.profile.lastName}`
-                      : emp.email;
-
-                    return (
-                      <tr key={emp.id} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="py-3.5 px-4 font-medium text-white flex items-center gap-3">
-                          {emp.profile?.profilePictureUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={emp.profile.profilePictureUrl}
-                              alt={fullName}
-                              className="w-8 h-8 rounded-full object-cover border border-slate-700"
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-indigo-950 border border-indigo-800/60 flex items-center justify-center text-indigo-400 font-bold text-xs">
-                              {fullName.charAt(0)}
-                            </div>
-                          )}
-                          <div>
-                            <span className="block font-bold text-slate-100">{fullName}</span>
-                            <span className="text-[11px] text-slate-500">{emp.email}</span>
-                          </div>
-                        </td>
-
-                        <td className="py-3.5 px-4 font-mono font-semibold text-amber-300">
-                          {emp.employeeId}
-                        </td>
-
-                        <td className="py-3.5 px-4 text-slate-300">
-                          {emp.profile?.department || 'Unassigned'}
-                        </td>
-
-                        <td className="py-3.5 px-4 text-slate-300">
-                          {emp.profile?.designation || 'Staff'}
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span
-                            className={`px-2 py-0.5 rounded-md font-mono text-[10px] uppercase font-bold border ${
-                              emp.role === 'ADMIN'
-                                ? 'bg-amber-950 text-amber-300 border-amber-800'
-                                : 'bg-indigo-950 text-indigo-300 border-indigo-800'
-                            }`}
-                          >
-                            {emp.role}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4 text-right">
-                          <Link
-                            href={`/dashboard/admin/employee/${emp.id}`}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold text-xs transition-all shadow-md shadow-indigo-600/10"
-                          >
-                            <Eye className="w-3.5 h-3.5" /> Manage Profile
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+            {/* NEW Button (Visible ONLY to Admin/HR) */}
+            <button
+              onClick={handleOpenModal}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center gap-1.5 shrink-0"
+            >
+              <Plus className="w-4 h-4" /> NEW
+            </button>
           </div>
         </div>
+
+        {/* Quick Audit / Analytics Nav Bar */}
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <Link
+            href="/dashboard/admin/reports"
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 rounded-xl font-semibold flex items-center gap-1.5 transition-colors"
+          >
+            <BarChart3 className="w-4 h-4" /> Reports &amp; Analytics
+          </Link>
+          <Link
+            href="/dashboard/admin/audit-log"
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl font-semibold flex items-center gap-1.5 transition-colors"
+          >
+            <History className="w-4 h-4" /> Admin Audit Log
+          </Link>
+        </div>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="p-4 rounded-xl bg-red-950/70 border border-red-800 text-red-200 flex items-center gap-3 text-xs font-semibold">
+            <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+            {error}
+          </div>
+        )}
+
+        {/* Wireframe Legend Status Indicators */}
+        <div className="flex items-center gap-4 text-xs font-medium text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+          <span className="text-slate-300 font-bold">Status Indicators:</span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full" /> 🟢 Present in office
+          </span>
+          <span className="flex items-center gap-1">
+            <span>✈️</span> On approved leave
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 bg-amber-400 rounded-full" /> 🟡 Absent (Unexplained)
+          </span>
+        </div>
+
+        {/* Wireframe Employee Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+          {loading ? (
+            <div className="col-span-full py-12 text-center text-slate-500 text-xs">
+              Loading employee directory...
+            </div>
+          ) : filteredEmployees.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-slate-500 text-xs">
+              No employee profiles found matching search criteria.
+            </div>
+          ) : (
+            filteredEmployees.map((emp) => {
+              const name = emp.profile
+                ? `${emp.profile.firstName} ${emp.profile.lastName}`
+                : emp.email;
+              const dept = emp.profile?.department || 'Operations';
+              const desig = emp.profile?.designation || 'Staff Member';
+
+              return (
+                <Link
+                  key={emp.id}
+                  href={`/dashboard/admin/employee/${emp.id}`}
+                  className="group relative p-5 bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-indigo-500/50 rounded-2xl transition-all shadow-md flex flex-col items-center text-center space-y-3"
+                >
+                  {/* Top-Right Wireframe Status Indicator Badge */}
+                  <div className="absolute top-3 right-3">
+                    {emp.todayStatus === 'PRESENT' && (
+                      <span className="w-3 h-3 bg-emerald-400 rounded-full block ring-4 ring-emerald-950/60 animate-pulse" title="Present in Office Today" />
+                    )}
+                    {emp.todayStatus === 'LEAVE' && (
+                      <span className="text-sm" title="On Approved Leave Today">✈️</span>
+                    )}
+                    {emp.todayStatus === 'ABSENT' && (
+                      <span className="w-3 h-3 bg-amber-400 rounded-full block ring-4 ring-amber-950/60" title="Absent (Unexplained)" />
+                    )}
+                  </div>
+
+                  {/* Profile Avatar Picture */}
+                  <div className="w-16 h-16 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform overflow-hidden">
+                    {emp.profile?.profilePictureUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={emp.profile.profilePictureUrl}
+                        alt={name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <User className="w-8 h-8 text-indigo-400" />
+                    )}
+                  </div>
+
+                  {/* Employee Name & Details */}
+                  <div className="space-y-0.5 w-full">
+                    <h3 className="font-bold text-sm text-white group-hover:text-indigo-300 transition-colors truncate">
+                      {name}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 truncate">{desig}</p>
+                    <p className="text-[10px] text-slate-500 font-mono truncate">{dept}</p>
+                  </div>
+
+                  <span className="px-2.5 py-0.5 bg-indigo-950 text-indigo-300 border border-indigo-800 rounded-md font-mono text-[10px] uppercase font-bold">
+                    {emp.employeeId}
+                  </span>
+                </Link>
+              );
+            })
+          )}
+        </div>
       </main>
+
+      {/* Wireframe Admin Employee Creation Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="font-bold text-lg text-white flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-400" /> Create Employee Account
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Auto-generates Login ID (e.g. OIJODO20220001) &amp; first-time password.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-500 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {createdCredentials ? (
+              /* Success Display */
+              <div className="space-y-4 p-4 bg-emerald-950/40 border border-emerald-800/80 rounded-xl text-xs">
+                <div className="flex items-center gap-2 text-emerald-300 font-bold text-sm">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" /> Employee Onboarded Successfully!
+                </div>
+                <p className="text-slate-300">
+                  Share these auto-generated credentials with <strong>{createdCredentials.name}</strong>:
+                </p>
+
+                <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2 font-mono text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Login ID:</span>
+                    <span className="font-bold text-amber-400 text-sm">{createdCredentials.loginId}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">First-Time Password:</span>
+                    <span className="font-bold text-indigo-300 text-sm">{createdCredentials.firstTimePassword}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl"
+                  >
+                    Done &amp; Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Form */
+              <form onSubmit={handleCreateEmployee} className="space-y-4 text-xs">
+                {modalError && (
+                  <div className="p-3 bg-red-950/80 border border-red-800 text-red-200 rounded-xl flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    {modalError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">First Name *</label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="e.g. John"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {fieldErrors.firstName && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.firstName}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Last Name *</label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="e.g. Doe"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    {fieldErrors.lastName && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.lastName}</p>}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Official Email Address *</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="e.g. john.doe@dayflow.com"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  {fieldErrors.email && <p className="text-red-400 text-[11px] mt-0.5">{fieldErrors.email}</p>}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Department *</label>
+                    <input
+                      type="text"
+                      value={department}
+                      onChange={(e) => setDepartment(e.target.value)}
+                      placeholder="e.g. Engineering"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-medium mb-1">Designation *</label>
+                    <input
+                      type="text"
+                      value={designation}
+                      onChange={(e) => setDesignation(e.target.value)}
+                      placeholder="e.g. Senior Developer"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-medium mb-1">Joining Year</label>
+                  <input
+                    type="number"
+                    value={joiningYear}
+                    onChange={(e) => setJoiningYear(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div className="pt-2 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl font-semibold hover:bg-slate-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold rounded-xl transition-all flex items-center gap-2"
+                  >
+                    {isSubmitting ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Generate Login ID &amp; Create
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -37,12 +37,42 @@ enum LeaveStatus {
   REJECTED
 }
 
+// Notification Types
+enum NotificationType {
+  LEAVE_STATUS
+  LEAVE_SUBMITTED
+  PROFILE_UPDATED
+  SALARY_UPDATED
+  LOW_LEAVE_BALANCE
+  GENERAL
+}
+
+// Admin Audit Log Actions
+enum AuditAction {
+  PROFILE_EDIT
+  SALARY_UPDATE
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  ATTENDANCE_OVERRIDE
+}
+
+// Global Company Settings Model
+model CompanySettings {
+  id          String   @id @default("default")
+  companyName String   @default("Odoo India")
+  companyCode String   @default("OI")
+  companyLogo String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // User Core Account Model
 model User {
   id                String   @id @default(cuid())
-  employeeId        String   @unique
+  employeeId        String   @unique // Formatted Login ID, e.g. OIJODO20220001
   email             String   @unique
   passwordHash      String
+  firstTimePassword String?  // Temp password generated on creation for admin display
   role              Role     @default(EMPLOYEE)
   isEmailVerified   Boolean  @default(false)
   verificationToken String?
@@ -70,44 +100,91 @@ model User {
   // Payslips belonging to this user
   payslips Payslip[] @relation("UserPayslips")
 
+  // Notifications belonging to this user
+  notifications Notification[]
+
+  // Audit logs performed by this user (if Admin)
+  auditLogsPerformed AuditLog[] @relation("AuditActor")
+
+  // Audit logs targeting this user
+  auditLogsTargeted AuditLog[] @relation("AuditTarget")
+
   @@index([email])
   @@index([employeeId])
   @@index([role])
 }
 
-// Employee Profile Model (1:1 with User)
+// Employee Profile Model (1:1 with User, matching 7 Wireframe Tabs)
 model Profile {
   id                String   @id @default(cuid())
   userId            String   @unique
   user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  // Personal Details
+  // Header / Basic Info
   firstName         String
   lastName          String
   phone             String?
   address           String?
-
-  // Job Details
   designation       String
   department        String
   joiningDate       DateTime @default(now())
-
-  // Salary Details (Structured numerical fields)
-  baseSalary        Float    @default(0.0)
-  housingAllowance  Float    @default(0.0)
-  otherAllowances   Float    @default(0.0)
-
   profilePictureUrl String?
 
-  // SQLite Document Storage Justification:
-  // SQLite in Prisma standard client does not have a native `@db.Json` type like PostgreSQL.
-  // Therefore, employee document metadata (e.g. resume, ID proofs, contracts) is stored 
-  // as a JSON string (`[{"id": "doc1", "name": "Resume.pdf", "url": "/uploads/..."}]`)
-  // and parsed/validated via TypeScript utility functions in `/lib/utils.ts`.
-  documents         String?
+  // Wireframe Private Info Tab
+  jobPosition       String?
+  managerName       String?
+  location          String?
+  residingAddress   String?
+  dateOfBirth       String?
+  nationality       String?
+  personalEmail     String?
+  gender            String?
+  maritalStatus     String?
+  dateOfJoining     String?
+  empCode           String?
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  // Wireframe Bank Details Tab
+  bankAccountNumber String?
+  bankName          String?
+  ifscCode          String?
+  uanNo             String?
+  panNo             String?
+
+  // Wireframe Salary Info Tab (Admin-Only)
+  wageType           String   @default("Fixed Wage")
+  monthlyWage        Float    @default(50000.0)
+  yearlyWage         Float    @default(600000.0)
+  workingDaysPerWeek Int      @default(5)
+  breakTimeHours     Float    @default(1.0)
+  
+  // Auto-calculated Salary Components
+  baseSalary         Float    @default(25000.0)  // 50% of Wage
+  housingAllowance   Float    @default(12500.0)  // HRA = 50% of Basic
+  standardAllowance  Float    @default(4167.0)   // Fixed ₹4,167
+  performanceBonus   Float    @default(2082.5)   // 8.33% of Basic
+  otherAllowances    Float    @default(2082.5)   // LTA = 8.333% of Basic
+  fixedAllowance     Float    @default(4168.0)   // Plug value = Wage - Sum
+  
+  // Statutory Deductions
+  pfEmployee         Float    @default(3000.0)   // 12% of Basic
+  pfEmployer         Float    @default(3000.0)   // 12% of Basic
+  professionalTax    Float    @default(200.0)    // Fixed ₹200/mo
+
+  // Leave Balances (Annual Allotments)
+  paidLeaveBalance   Float    @default(24.0)     // Default 24 Days Available
+  sickLeaveBalance   Float    @default(7.0)      // Default 7 Days Available
+
+  // Wireframe About & Skills Tabs
+  aboutText          String?
+  skillsJson         String?  // JSON string e.g. ["React", "TypeScript"]
+  certificationsJson String?  // JSON string e.g. [{"name": "AWS Certified"}]
+  resumeJson         String?  // Work history list
+
+  // Document attachments JSON string
+  documents          String?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Audit history entries for salary changes
   salaryHistories SalaryHistory[]
@@ -127,6 +204,8 @@ model Attendance {
   status       AttendanceStatus @default(PRESENT)
   checkInTime  DateTime?
   checkOutTime DateTime?
+  workHours    String?          // Formatted e.g. "09:00"
+  extraHours   String?          // Formatted e.g. "01:00"
   adminNote    String?
   createdAt    DateTime         @default(now())
 
@@ -149,6 +228,7 @@ model LeaveRequest {
   remarks      String
   status       LeaveStatus @default(PENDING)
   adminComment String?
+  attachmentUrl String?    // Required for SICK leave medical certificates
 
   reviewedById String?
   reviewedBy   User?       @relation("ReviewedByAdmin", fields: [reviewedById], references: [id], onDelete: SetNull)
@@ -206,4 +286,34 @@ model Payslip {
   @@unique([userId, month])
   @@index([userId])
   @@index([month])
+}
+
+// In-App Notification Model
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  message   String
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// Consolidated Admin Audit Log Model
+model AuditLog {
+  id           String      @id @default(cuid())
+  actorUserId  String
+  actorUser    User        @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  action       AuditAction
+  targetUserId String?
+  targetUser   User?       @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  details      String
+  timestamp    DateTime    @default(now())
+
+  @@index([actorUserId])
+  @@index([targetUserId])
+  @@index([action])
 }
