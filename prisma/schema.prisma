@@ -1,0 +1,150 @@
+// Prisma schema for Dayflow HRMS
+// Uses SQLite as the local file-based database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// User Roles
+enum Role {
+  EMPLOYEE
+  ADMIN
+}
+
+// Attendance Status Types
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+}
+
+// Leave Types
+enum LeaveType {
+  PAID
+  SICK
+  UNPAID
+}
+
+// Leave Status Types
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// User Core Account Model
+model User {
+  id                String   @id @default(cuid())
+  employeeId        String   @unique
+  email             String   @unique
+  passwordHash      String
+  role              Role     @default(EMPLOYEE)
+  isEmailVerified   Boolean  @default(false)
+  verificationToken String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // 1:1 Profile relation
+  profile Profile?
+
+  // Attendance history
+  attendances Attendance[]
+
+  // Leave requests created by this user
+  leaveRequests LeaveRequest[] @relation("UserLeaveRequests")
+
+  // Leave requests reviewed by this user (if Admin)
+  reviewedLeaves LeaveRequest[] @relation("ReviewedByAdmin")
+
+  @@index([email])
+  @@index([employeeId])
+  @@index([role])
+}
+
+// Employee Profile Model (1:1 with User)
+model Profile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Personal Details
+  firstName         String
+  lastName          String
+  phone             String?
+  address           String?
+
+  // Job Details
+  designation       String
+  department        String
+  joiningDate       DateTime @default(now())
+
+  // Salary Details (Structured numerical fields)
+  baseSalary        Float    @default(0.0)
+  housingAllowance  Float    @default(0.0)
+  otherAllowances   Float    @default(0.0)
+
+  profilePictureUrl String?
+
+  // SQLite Document Storage Justification:
+  // SQLite in Prisma standard client does not have a native `@db.Json` type like PostgreSQL.
+  // Therefore, employee document metadata (e.g. resume, ID proofs, contracts) is stored 
+  // as a JSON string (`[{"id": "doc1", "name": "Resume.pdf", "url": "/uploads/..."}]`)
+  // and parsed/validated via TypeScript utility functions in `/lib/utils.ts`.
+  documents         String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+  @@index([department])
+}
+
+// Daily Attendance Records
+model Attendance {
+  id           String           @id @default(cuid())
+  userId       String
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Date formatted as YYYY-MM-DD string for efficient indexed querying in SQLite
+  date         String
+  status       AttendanceStatus @default(PRESENT)
+  checkInTime  DateTime?
+  checkOutTime DateTime?
+  adminNote    String?
+  createdAt    DateTime         @default(now())
+
+  // Unique constraint ensures an employee cannot have multiple attendance logs for the exact same date
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([date])
+  @@index([status])
+}
+
+// Employee Leave Requests
+model LeaveRequest {
+  id           String      @id @default(cuid())
+  userId       String
+  user         User        @relation("UserLeaveRequests", fields: [userId], references: [id], onDelete: Cascade)
+
+  leaveType    LeaveType
+  startDate    DateTime
+  endDate      DateTime
+  remarks      String
+  status       LeaveStatus @default(PENDING)
+  adminComment String?
+
+  reviewedById String?
+  reviewedBy   User?       @relation("ReviewedByAdmin", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([reviewedById])
+}
