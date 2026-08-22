@@ -322,17 +322,17 @@ export default function EmployeeDashboardPage() {
             </div>
           </div>
 
-          {/* Wireframe Legend Status Indicators */}
-          <div className="flex items-center gap-4 text-xs font-medium text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
+          {/* Status Indicators Legend */}
+          <div className="flex flex-wrap items-center gap-5 text-xs font-medium text-slate-400 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80">
             <span className="text-slate-300 font-bold">Status Indicators:</span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full" /> 🟢 Present in office
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 bg-emerald-400 rounded-full inline-block" /> Present in office
             </span>
-            <span className="flex items-center gap-1">
-              <span>✈️</span> On approved leave
+            <span className="flex items-center gap-1.5">
+              <span className="text-sm">✈️</span> On approved leave
             </span>
-            <span className="flex items-center gap-1">
-              <span className="w-2.5 h-2.5 bg-amber-400 rounded-full" /> 🟡 Absent (Unexplained)
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 bg-amber-400 rounded-full inline-block" /> Absent (Unexplained)
             </span>
           </div>
 

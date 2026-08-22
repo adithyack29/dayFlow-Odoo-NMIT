@@ -261,15 +261,15 @@ export default function EmployeeLeavesPage() {
             </button>
           </div>
 
-          {/* Wireframe Cards: "Paid time Off — 24 Days Available", "Sick time off — 07 Days Available" */}
+          {/* Wireframe Cards: "Paid Time Off — 24 Days Available", "Sick Time Off — 07 Days Available" */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
-              <span className="text-sm font-bold text-indigo-400">Paid time Off</span>
+              <span className="text-sm font-bold text-indigo-400">Paid Time Off</span>
               <p className="text-2xl font-black text-white">{balances.paidLeaveBalance} <span className="text-xs font-normal text-slate-400">Days Available</span></p>
             </div>
 
             <div className="p-5 bg-slate-950 rounded-2xl border border-slate-800 space-y-1">
-              <span className="text-sm font-bold text-amber-400">Sick time off</span>
+              <span className="text-sm font-bold text-amber-400">Sick Time Off</span>
               <p className="text-2xl font-black text-white">{balances.sickLeaveBalance} <span className="text-xs font-normal text-slate-400">Days Available</span></p>
             </div>
           </div>
