@@ -93,7 +93,8 @@ export default function EmployeeSelfProfilePage() {
         }
 
         const meData = await resMe.json();
-        const resProf = await fetch(`/api/profile/${meData.user.userId}`);
+        const targetId = meData.user.id || meData.user.userId;
+        const resProf = await fetch(`/api/profile/${targetId}`);
         if (!resProf.ok) throw new Error('Failed to load profile');
 
         const data = await resProf.json();

@@ -149,7 +149,7 @@ export default function EmployeeProfileInspectorPage({
 
         if (resMe.ok) {
           const m = await resMe.json();
-          setViewerSession({ userId: m.user.userId, role: m.user.role });
+          setViewerSession({ userId: m.user.id || m.user.userId, role: m.user.role });
         }
 
         if (!resUser.ok) {

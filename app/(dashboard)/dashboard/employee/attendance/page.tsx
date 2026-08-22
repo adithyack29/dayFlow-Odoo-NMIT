@@ -63,6 +63,13 @@ export default function EmployeeAttendancePage() {
 
   // Filter records by selected month and year
   const filteredRecords = attendances.filter((a) => {
+    if (!a.date) return false;
+    const parts = a.date.split('-');
+    if (parts.length >= 2) {
+      const yr = parseInt(parts[0], 10);
+      const mo = parseInt(parts[1], 10) - 1;
+      return mo === selectedMonth && yr === selectedYear;
+    }
     const d = new Date(a.date);
     return d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
   });
