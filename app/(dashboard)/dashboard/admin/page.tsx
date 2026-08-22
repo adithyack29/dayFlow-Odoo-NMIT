@@ -18,6 +18,8 @@ import {
   Clock,
   Briefcase,
   Eye,
+  DollarSign,
+  BarChart3,
 } from 'lucide-react';
 
 interface EmployeeItem {
@@ -202,6 +204,18 @@ export default function AdminDashboardPage() {
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-amber-600/20"
               >
                 <FileCheck className="w-4 h-4 text-slate-950" /> Leave Approvals &rarr;
+              </Link>
+              <Link
+                href="/dashboard/admin/payroll"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-emerald-600/20"
+              >
+                <DollarSign className="w-4 h-4 text-slate-950" /> Payroll Control &rarr;
+              </Link>
+              <Link
+                href="/dashboard/admin/reports"
+                className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-md shadow-sky-600/20"
+              >
+                <BarChart3 className="w-4 h-4 text-white" /> Reports &amp; Analytics &rarr;
               </Link>
             </div>
           </div>

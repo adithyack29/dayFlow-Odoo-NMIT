@@ -259,6 +259,23 @@ export default function EmployeeDashboardPage() {
               </div>
             </Link>
 
+            {/* Card 4: Payroll & Payslips */}
+            <Link
+              href="/dashboard/employee/payroll"
+              className="p-5 bg-slate-900 hover:bg-slate-880 border border-slate-800 hover:border-indigo-500/50 rounded-2xl transition-all shadow-sm group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-10 h-10 rounded-xl bg-indigo-950 border border-indigo-800/60 flex items-center justify-center text-indigo-400 group-hover:scale-110 transition-transform">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-base">Payroll &amp; Payslips</h4>
+                <p className="text-xs text-slate-400 mt-1">View salary &amp; monthly statements &rarr;</p>
+              </div>
+            </Link>
+
             {/* Card 4: Logout */}
             <button
               onClick={handleSignOut}
